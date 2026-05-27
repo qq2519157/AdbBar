@@ -46,21 +46,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Generate Windows icon
-        if: matrix.platform == 'windows-latest'
-        run: |
-          pip install Pillow
-          python -c "
-          from PIL import Image
-          img = Image.open('src-tauri/icons/icon.png')
-          icon_sizes = [(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)]
-          img.save('src-tauri/icons/icon.ico', format='ICO', sizes=icon_sizes)
-          "
-          $iconEntry = '    "icons/icon.ico",'
-          $json = Get-Content src-tauri/tauri.conf.json -Raw
-          $json = $json.Replace('"icons/icon.png"', "`"icons/icon.png`",$iconEntry")
-          Set-Content src-tauri/tauri.conf.json $json
-
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
