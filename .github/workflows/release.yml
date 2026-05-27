@@ -49,7 +49,13 @@ jobs:
       - name: Generate Windows icon
         if: matrix.platform == 'windows-latest'
         run: |
-          npx png-to-ico src-tauri/icons/icon.png > src-tauri/icons/icon.ico
+          pip install Pillow
+          python -c "
+          from PIL import Image
+          img = Image.open('src-tauri/icons/icon.png')
+          icon_sizes = [(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)]
+          img.save('src-tauri/icons/icon.ico', format='ICO', sizes=icon_sizes)
+          "
           $iconEntry = '    "icons/icon.ico",'
           $json = Get-Content src-tauri/tauri.conf.json -Raw
           $json = $json.Replace('"icons/icon.png"', "`"icons/icon.png`",$iconEntry")
