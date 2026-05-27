@@ -185,9 +185,11 @@ impl ScrcpyService {
             .await
             .map_err(|e| format!("Failed to check latest release: {}", e))?;
 
-        let release: serde_json::Value = response
-            .json()
+        let body = response
+            .text()
             .await
+            .map_err(|e| format!("Failed to read release info: {}", e))?;
+        let release: serde_json::Value = serde_json::from_str(&body)
             .map_err(|e| format!("Failed to parse release info: {}", e))?;
 
         let assets = release["assets"]

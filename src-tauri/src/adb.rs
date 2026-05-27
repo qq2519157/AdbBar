@@ -183,7 +183,7 @@ impl AdbService {
                     .args(&["/C", "start", &format!("{} -s {} shell", adb_path, addr)])
                     .spawn()
                     .map_err(|e| format!("Failed to open cmd: {}", e))?;
-                Ok(())
+                Ok::<(), String>(())
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))??;
