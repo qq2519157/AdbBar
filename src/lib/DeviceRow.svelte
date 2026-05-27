@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AdbDevice } from './types';
-  import { store } from './stores';
+  import { store } from './stores.svelte';
   import {
     connectDevice,
     disconnectDevice,
@@ -43,8 +43,8 @@
   async function handleConnect() {
     busy = true;
     try {
-      const result = await connectDevice(address);
-      store.showStatus(result.message);
+      const msg = await connectDevice(address);
+      store.showStatus(msg || 'Connected');
       store.devices = await getDevices();
     } catch (e) {
       store.showStatus('Connection failed');
@@ -57,8 +57,8 @@
     busy = true;
     menuOpen = false;
     try {
-      const result = await disconnectDevice(address);
-      store.showStatus(result.message);
+      const msg = await disconnectDevice(address);
+      store.showStatus(msg || 'Disconnected');
       store.devices = await getDevices();
     } catch (e) {
       store.showStatus('Disconnect failed');
@@ -102,8 +102,8 @@
     menuOpen = false;
     busy = true;
     try {
-      const result = await takeScreenshot(address);
-      store.showStatus(result.message);
+      const path = await takeScreenshot(address);
+      store.showStatus(path ? `Saved: ${path}` : 'Screenshot taken');
     } catch (e) {
       store.showStatus('Screenshot failed');
     } finally {
@@ -121,8 +121,8 @@
       if (selected) {
         const filePath = typeof selected === 'string' ? selected : selected;
         busy = true;
-        const result = await installApk(address, filePath as string);
-        store.showStatus(result.message);
+        const msg = await installApk(address, filePath as string);
+        store.showStatus(msg || 'APK installed');
       }
     } catch (e) {
       store.showStatus('APK install failed');

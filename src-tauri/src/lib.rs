@@ -8,7 +8,7 @@ use scanner::{ScanProgress, ScanResult};
 use scrcpy::{ScrcpyService, ScrcpyStatus};
 use store::{AdbDevice, StoreManager};
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, RunEvent};
 
 pub struct AppState {
     pub adb: Arc<AdbService>,
@@ -195,6 +195,12 @@ async fn install_scrcpy(
         .await
 }
 
+#[tauri::command]
+async fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
+}
+
 /// Build and run the Tauri app with a custom setup callback.
 /// The callback receives the `tauri::App` after plugins and state are initialized,
 /// allowing the caller (main.rs) to set up the system tray.
@@ -246,7 +252,19 @@ where
             set_adb_path,
             detect_scrcpy_status,
             install_scrcpy,
+            quit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { api, .. }, label, .. } = event {
+                if label == "main" {
+                    // Hide window instead of closing
+                    api.prevent_close();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            }
+        });
 }

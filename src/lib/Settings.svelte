@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { store } from './stores';
+  import { store } from './stores.svelte';
   import {
     getAdbPath,
     setAdbPath,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { store } from './stores';
+  import { store } from './stores.svelte';
   import { scanNetwork, addDevice, getDevices } from './api';
   import { listen } from './api';
   import type { ScanResult } from './types';
@@ -31,12 +31,13 @@
 
     try {
       // Listen for scan progress events
-      unlisten = await listen<string>('scan-progress', (msg) => {
-        store.scanLog += msg + '\n';
+      unlisten = await listen<{ scanned: number; total: number; found: { ip: string; port: number }[] }>('scan-progress', (progress) => {
+        store.scanLog = `Scanning ${progress.scanned}/${progress.total}... Found: ${progress.found.length}\n`;
       });
 
       const results = await scanNetwork();
       store.scanResults = results;
+      store.devices = await getDevices();
       store.scanLog += `\nScan complete. Found ${results.length} device(s).\n`;
     } catch (e) {
       store.scanLog += '\nScan failed.\n';

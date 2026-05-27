@@ -16,15 +16,12 @@
         "height": 480,
         "decorations": false,
         "transparent": true,
+        "shadow": true,
         "resizable": false,
         "visible": false,
         "skipTaskbar": true
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "ADB Bar"
-    }
+    "macOSPrivateApi": true
   }
 }

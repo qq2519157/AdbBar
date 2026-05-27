@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { store } from './stores';
+  import { store } from './stores.svelte';
   import { addDevice, getDevices } from './api';
 
   let name = $state('');

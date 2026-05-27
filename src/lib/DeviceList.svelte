@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { store } from './stores';
+  import { slide } from 'svelte/transition';
+  import { store } from './stores.svelte';
   import { getDevices, refreshAll } from './api';
   import DeviceRow from './DeviceRow.svelte';
 
