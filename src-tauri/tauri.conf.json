@@ -1,0 +1,30 @@
+{
+  "productName": "ADB Bar",
+  "version": "1.0.0",
+  "identifier": "com.adbbar.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "width": 320,
+        "height": 480,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "tooltip": "ADB Bar"
+    }
+  }
+}
