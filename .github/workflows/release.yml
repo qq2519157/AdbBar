@@ -48,7 +48,12 @@ jobs:
 
       - name: Generate Windows icon
         if: matrix.platform == 'windows-latest'
-        run: npx png-to-ico src-tauri/icons/icon.png > src-tauri/icons/icon.ico
+        run: |
+          npx png-to-ico src-tauri/icons/icon.png > src-tauri/icons/icon.ico
+          $iconEntry = '    "icons/icon.ico",'
+          $json = Get-Content src-tauri/tauri.conf.json -Raw
+          $json = $json.Replace('"icons/icon.png"', "`"icons/icon.png`",$iconEntry")
+          Set-Content src-tauri/tauri.conf.json $json
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
