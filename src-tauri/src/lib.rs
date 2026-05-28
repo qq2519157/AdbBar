@@ -256,15 +256,30 @@ where
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { api, .. }, label, .. } = event {
+        .run(|app, event| match event {
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                label,
+                ..
+            } => {
                 if label == "main" {
-                    // Hide window instead of closing
                     api.prevent_close();
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
                 }
             }
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Focused(false),
+                label,
+                ..
+            } => {
+                if label == "main" {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            }
+            _ => {}
         });
 }
