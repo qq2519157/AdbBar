@@ -2,6 +2,7 @@
   import { store } from './stores.svelte';
   import {
     getAdbPath,
+    detectAdbPath,
     setAdbPath,
     detectScrcpyStatus,
     installScrcpy,
@@ -66,23 +67,27 @@
 
   async function handleAutoDetect() {
     try {
-      const path = await getAdbPath();
+      const path = await detectAdbPath();
       adbPathInput = path;
-      await applyAdbPath(path);
-      store.showStatus('ADB path detected');
+      if (await applyAdbPath(path)) {
+        store.showStatus('ADB path detected');
+      }
     } catch {
       adbValid = false;
       store.showStatus('Could not detect ADB');
     }
   }
 
-  async function applyAdbPath(path: string) {
+  async function applyAdbPath(path: string): Promise<boolean> {
     try {
       await setAdbPath(path);
       store.adbPath = path;
       adbValid = true;
+      return true;
     } catch {
       adbValid = false;
+      store.showStatus('Invalid ADB path');
+      return false;
     }
   }
 

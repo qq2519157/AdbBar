@@ -6,8 +6,8 @@ mod store;
 use adb::AdbService;
 use scanner::{ScanProgress, ScanResult};
 use scrcpy::{ScrcpyService, ScrcpyStatus};
-use store::{AdbDevice, StoreManager};
 use std::sync::Arc;
+use store::{AdbDevice, StoreManager};
 use tauri::{Emitter, Manager, RunEvent};
 
 pub struct AppState {
@@ -54,32 +54,12 @@ async fn refresh_all(state: tauri::State<'_, AppState>) -> Result<Vec<AdbDevice>
 }
 
 #[tauri::command]
-async fn scan_network(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    port: u16,
-) -> Result<Vec<ScanResult>, String> {
+async fn scan_network(app: tauri::AppHandle, port: u16) -> Result<Vec<ScanResult>, String> {
     let app_handle = app.clone();
     let results = scanner::scan_subnet(port, move |progress: ScanProgress| {
         let _ = app_handle.emit("scan-progress", &progress);
     })
     .await?;
-
-    // Auto-add found devices to store
-    for result in &results {
-        let device = AdbDevice {
-            id: format!("{}:{}", result.ip, result.port),
-            name: format!("ADB Device ({})", result.ip),
-            ip_address: result.ip.clone(),
-            port: result.port,
-            status: "disconnected".to_string(),
-        };
-        let _ = state.store.add(device).await;
-    }
-
-    // Try to refresh statuses with adb
-    let _ =
-        adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await;
 
     Ok(results)
 }
@@ -109,18 +89,12 @@ async fn remove_device(state: tauri::State<'_, AppState>, id: String) -> Result<
 }
 
 #[tauri::command]
-async fn open_shell(
-    state: tauri::State<'_, AppState>,
-    address: String,
-) -> Result<(), String> {
+async fn open_shell(state: tauri::State<'_, AppState>, address: String) -> Result<(), String> {
     state.adb.open_shell(&address).await
 }
 
 #[tauri::command]
-async fn launch_scrcpy(
-    state: tauri::State<'_, AppState>,
-    address: String,
-) -> Result<(), String> {
+async fn launch_scrcpy(state: tauri::State<'_, AppState>, address: String) -> Result<(), String> {
     // Re-detect if path is not set
     {
         let guard = state.scrcpy.path.lock().await;
@@ -158,10 +132,17 @@ async fn get_adb_path(state: tauri::State<'_, AppState>) -> Result<String, Strin
 }
 
 #[tauri::command]
-async fn set_adb_path(
-    state: tauri::State<'_, AppState>,
-    path: String,
-) -> Result<(), String> {
+async fn detect_adb_path() -> Result<String, String> {
+    let path = AdbService::detect_adb_path()
+        .ok_or_else(|| "Could not detect ADB in PATH or common install locations".to_string())?;
+    AdbService::validate_adb_path(&path).await?;
+    Ok(path)
+}
+
+#[tauri::command]
+async fn set_adb_path(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+    let path = path.trim().to_string();
+    AdbService::validate_adb_path(&path).await?;
     state.adb.set_adb_path(path.clone()).await;
 
     // Persist the new path in the store
@@ -175,9 +156,7 @@ async fn set_adb_path(
 }
 
 #[tauri::command]
-async fn detect_scrcpy_status(
-    state: tauri::State<'_, AppState>,
-) -> Result<ScrcpyStatus, String> {
+async fn detect_scrcpy_status(state: tauri::State<'_, AppState>) -> Result<ScrcpyStatus, String> {
     Ok(state.scrcpy.detect().await)
 }
 
@@ -249,6 +228,7 @@ where
             take_screenshot,
             install_apk,
             get_adb_path,
+            detect_adb_path,
             set_adb_path,
             detect_scrcpy_status,
             install_scrcpy,
@@ -261,23 +241,19 @@ where
                 event: tauri::WindowEvent::CloseRequested { api, .. },
                 label,
                 ..
-            } => {
-                if label == "main" {
-                    api.prevent_close();
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
+            } if label == "main" => {
+                api.prevent_close();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
                 }
             }
             RunEvent::WindowEvent {
                 event: tauri::WindowEvent::Focused(false),
                 label,
                 ..
-            } => {
-                if label == "main" {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
+            } if label == "main" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
                 }
             }
             _ => {}

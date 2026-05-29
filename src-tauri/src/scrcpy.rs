@@ -26,7 +26,11 @@ impl ScrcpyService {
         if let Ok(path_var) = std::env::var("PATH") {
             let separator = if cfg!(windows) { ';' } else { ':' };
             for dir in path_var.split(separator) {
-                let scrcpy_name = if cfg!(windows) { "scrcpy.exe" } else { "scrcpy" };
+                let scrcpy_name = if cfg!(windows) {
+                    "scrcpy.exe"
+                } else {
+                    "scrcpy"
+                };
                 let candidate = PathBuf::from(dir).join(scrcpy_name);
                 if candidate.exists() {
                     let path_str = candidate.to_string_lossy().to_string();
@@ -65,8 +69,9 @@ impl ScrcpyService {
         #[cfg(target_os = "windows")]
         {
             if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-                let candidate =
-                    PathBuf::from(local_app_data).join("scrcpy").join("scrcpy.exe");
+                let candidate = PathBuf::from(local_app_data)
+                    .join("scrcpy")
+                    .join("scrcpy.exe");
                 if candidate.exists() {
                     let path_str = candidate.to_string_lossy().to_string();
                     let version = self.get_version(&path_str).await;
@@ -80,6 +85,9 @@ impl ScrcpyService {
                 }
             }
         }
+
+        let mut guard = self.path.lock().await;
+        *guard = None;
 
         ScrcpyStatus {
             installed: false,
@@ -135,7 +143,7 @@ impl ScrcpyService {
         let emit_clone = emit.clone();
         let result = tokio::task::spawn_blocking(move || {
             let child = std::process::Command::new("brew")
-                .args(&["install", "scrcpy"])
+                .args(["install", "scrcpy"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -226,8 +234,7 @@ impl ScrcpyService {
         let _ = std::fs::create_dir_all(&install_dir);
 
         let zip_path = install_dir.join("scrcpy.zip");
-        std::fs::write(&zip_path, &zip_bytes)
-            .map_err(|e| format!("Failed to write zip: {}", e))?;
+        std::fs::write(&zip_path, &zip_bytes).map_err(|e| format!("Failed to write zip: {}", e))?;
 
         emit("Extracting...".to_string());
 
@@ -288,28 +295,22 @@ impl ScrcpyService {
             guard.clone()
         };
 
-        let scrcpy_path = scrcpy_path
-            .ok_or("scrcpy is not installed. Please install it first.")?;
+        let scrcpy_path = scrcpy_path.ok_or("scrcpy is not installed. Please install it first.")?;
 
         let addr = address.to_string();
         tokio::task::spawn_blocking(move || {
             #[cfg(target_os = "macos")]
             {
-                std::process::Command::new("open")
-                    .arg("-a")
-                    .arg("Terminal")
-                    .arg("--")
-                    .arg(&scrcpy_path)
-                    .arg("-s")
-                    .arg(&addr)
+                std::process::Command::new(&scrcpy_path)
+                    .args(["-s", &addr])
                     .spawn()
                     .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
             }
 
             #[cfg(target_os = "windows")]
             {
-                std::process::Command::new("cmd")
-                    .args(&["/C", "start", &scrcpy_path, "-s", &addr])
+                std::process::Command::new(&scrcpy_path)
+                    .args(["-s", &addr])
                     .spawn()
                     .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
             }

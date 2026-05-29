@@ -19,11 +19,10 @@ fn tray_setup(app: &tauri::App) {
         .tooltip("ADB Bar")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "quit" => {
+        .on_menu_event(|app, event| {
+            if event.id.as_ref() == "quit" {
                 app.exit(0);
             }
-            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
@@ -38,7 +37,7 @@ fn tray_setup(app: &tauri::App) {
                         let _ = window.hide();
                     } else {
                         if let Ok(Some(rect)) = tray.rect() {
-                            use tauri::{LogicalPosition, LogicalSize, Position, Size};
+                            use tauri::{LogicalPosition, Position, Size};
                             let scale = window.scale_factor().unwrap_or(1.0);
                             let (tray_x, tray_y) = match rect.position {
                                 Position::Physical(p) => (p.x as f64 / scale, p.y as f64 / scale),
@@ -48,13 +47,18 @@ fn tray_setup(app: &tauri::App) {
                                 Size::Physical(s) => s.height as f64 / scale,
                                 Size::Logical(s) => s.height,
                             };
-                            let win_size = window.inner_size().unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480));
-                            let (win_w, win_h) = (win_size.width as f64 / scale, win_size.height as f64 / scale);
+                            let win_size = window
+                                .inner_size()
+                                .unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480));
+                            let win_w = win_size.width as f64 / scale;
+                            #[cfg(target_os = "windows")]
+                            let win_h = win_size.height as f64 / scale;
                             #[cfg(target_os = "macos")]
                             let y = tray_y + tray_height;
                             #[cfg(target_os = "windows")]
                             let y = tray_y - win_h;
-                            let _ = window.set_position(LogicalPosition::new(tray_x - win_w / 2.0, y));
+                            let _ =
+                                window.set_position(LogicalPosition::new(tray_x - win_w / 2.0, y));
                         }
                         let _ = window.show();
                         let _ = window.set_focus();
