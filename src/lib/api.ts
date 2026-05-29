@@ -50,6 +50,10 @@ export async function getAdbPath(): Promise<string> {
   return invoke<string>('get_adb_path');
 }
 
+export async function detectAdbPath(): Promise<string> {
+  return invoke<string>('detect_adb_path');
+}
+
 export async function setAdbPath(path: string): Promise<void> {
   return invoke<void>('set_adb_path', { path });
 }

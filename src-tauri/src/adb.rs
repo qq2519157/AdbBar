@@ -12,9 +12,8 @@ pub struct AdbService {
 
 impl AdbService {
     pub fn new(configured_path: Option<String>) -> Self {
-        let path = configured_path.unwrap_or_else(|| {
-            Self::detect_adb_path().unwrap_or_else(|| "adb".to_string())
-        });
+        let path = configured_path
+            .unwrap_or_else(|| Self::detect_adb_path().unwrap_or_else(|| "adb".to_string()));
         Self {
             adb_path: Mutex::new(path),
         }
@@ -64,6 +63,31 @@ impl AdbService {
         }
 
         None
+    }
+
+    pub async fn validate_adb_path(path: &str) -> Result<(), String> {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            return Err("ADB path cannot be empty".to_string());
+        }
+
+        tokio::task::spawn_blocking(move || {
+            let output = std::process::Command::new(&path)
+                .arg("version")
+                .output()
+                .map_err(|e| format!("Failed to run adb: {}", e))?;
+
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let message = if stderr.is_empty() { stdout } else { stderr };
+                Err(format!("ADB validation failed: {}", message))
+            }
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
     }
 
     pub async fn run(&self, args: &[&str], timeout_secs: u64) -> Result<String, String> {
@@ -158,9 +182,14 @@ impl AdbService {
         #[cfg(target_os = "macos")]
         {
             let adb_path = self.adb_path.lock().await.clone();
+            let command = format!(
+                "{} -s {} shell",
+                shell_quote(&adb_path),
+                shell_quote(address)
+            );
             let script = format!(
-                "tell application \"Terminal\"\nactivate\ndo script \"{} -s {} shell\"\nend tell",
-                adb_path, address
+                "tell application \"Terminal\"\nactivate\ndo script {}\nend tell",
+                applescript_string_literal(&command)
             );
             tokio::task::spawn_blocking(move || -> Result<(), String> {
                 std::process::Command::new("osascript")
@@ -180,7 +209,7 @@ impl AdbService {
             let addr = address.to_string();
             tokio::task::spawn_blocking(move || {
                 std::process::Command::new("cmd")
-                    .args(&["/C", "start", &format!("{} -s {} shell", adb_path, addr)])
+                    .args(["/C", "start", "", &adb_path, "-s", &addr, "shell"])
                     .spawn()
                     .map_err(|e| format!("Failed to open cmd: {}", e))?;
                 Ok::<(), String>(())
@@ -214,7 +243,7 @@ impl AdbService {
 
             // Take screenshot on device
             let status = std::process::Command::new(&adb_path)
-                .args(&["-s", &addr, "shell", "screencap", "-p", tmp_device])
+                .args(["-s", &addr, "shell", "screencap", "-p", tmp_device])
                 .output()
                 .map_err(|e| format!("Failed to take screenshot: {}", e))?;
 
@@ -227,13 +256,7 @@ impl AdbService {
 
             // Pull to desktop
             let status = std::process::Command::new(&adb_path)
-                .args(&[
-                    "-s",
-                    &addr,
-                    "pull",
-                    tmp_device,
-                    &fp.to_string_lossy(),
-                ])
+                .args(["-s", &addr, "pull", tmp_device, &fp.to_string_lossy()])
                 .output()
                 .map_err(|e| format!("Failed to pull screenshot: {}", e))?;
 
@@ -246,7 +269,7 @@ impl AdbService {
 
             // Clean up temp file on device
             let _ = std::process::Command::new(&adb_path)
-                .args(&["-s", &addr, "shell", "rm", tmp_device])
+                .args(["-s", &addr, "shell", "rm", tmp_device])
                 .output();
 
             Ok(fp.to_string_lossy().to_string())
@@ -280,6 +303,14 @@ impl AdbService {
     pub async fn get_adb_path(&self) -> String {
         self.adb_path.lock().await.clone()
     }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn applescript_string_literal(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn chrono_date_string() -> String {
