@@ -11,6 +11,7 @@
     installApk,
     getDevices,
   } from './api';
+  import { getErrorMessage } from './errors';
   import { open } from '@tauri-apps/plugin-dialog';
 
   let { device }: { device: AdbDevice } = $props();
@@ -47,7 +48,7 @@
       store.showStatus(msg || 'Connected');
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus('Connection failed');
+      store.showStatus(getErrorMessage(e, 'Connection failed'));
     } finally {
       busy = false;
     }
@@ -61,7 +62,7 @@
       store.showStatus(msg || 'Disconnected');
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus('Disconnect failed');
+      store.showStatus(getErrorMessage(e, 'Disconnect failed'));
     } finally {
       busy = false;
     }
@@ -74,7 +75,7 @@
       store.devices = await getDevices();
       store.showStatus('Device removed');
     } catch (e) {
-      store.showStatus('Failed to remove device');
+      store.showStatus(getErrorMessage(e, 'Failed to remove device'));
     }
   }
 
@@ -84,7 +85,7 @@
       await openShell(address);
       store.showStatus('Shell opened');
     } catch (e) {
-      store.showStatus('Failed to open shell');
+      store.showStatus(getErrorMessage(e, 'Failed to open shell'));
     }
   }
 
@@ -94,7 +95,7 @@
       await launchScrcpy(address);
       store.showStatus('Scrcpy launched');
     } catch (e) {
-      store.showStatus('Failed to launch scrcpy');
+      store.showStatus(getErrorMessage(e, 'Failed to launch scrcpy'));
     }
   }
 
@@ -105,7 +106,7 @@
       const path = await takeScreenshot(address);
       store.showStatus(path ? `Saved: ${path}` : 'Screenshot taken');
     } catch (e) {
-      store.showStatus('Screenshot failed');
+      store.showStatus(getErrorMessage(e, 'Screenshot failed'));
     } finally {
       busy = false;
     }
@@ -125,7 +126,7 @@
         store.showStatus(msg || 'APK installed');
       }
     } catch (e) {
-      store.showStatus('APK install failed');
+      store.showStatus(getErrorMessage(e, 'APK install failed'));
     } finally {
       busy = false;
     }

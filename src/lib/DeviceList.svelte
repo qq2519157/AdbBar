@@ -2,9 +2,11 @@
   import { slide } from 'svelte/transition';
   import { store } from './stores.svelte';
   import { getDevices, refreshAll } from './api';
+  import { getErrorMessage } from './errors';
   import DeviceRow from './DeviceRow.svelte';
 
   let loading = $state(false);
+  let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   const devices = $derived(store.devices);
   const statusMessage = $derived(store.statusMessage);
@@ -15,7 +17,7 @@
     try {
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus('Failed to load devices');
+      store.showStatus(getErrorMessage(e, 'Failed to load devices'));
     } finally {
       loading = false;
     }
@@ -27,14 +29,31 @@
       store.devices = await refreshAll();
       store.showStatus('Refreshed');
     } catch (e) {
-      store.showStatus('Refresh failed');
+      store.showStatus(getErrorMessage(e, 'Refresh failed'));
     } finally {
       store.isRefreshing = false;
     }
   }
 
+  async function silentRefresh() {
+    try {
+      store.devices = await refreshAll();
+    } catch {
+      // Keep background refresh quiet; manual refresh still reports errors.
+    }
+  }
+
   $effect(() => {
     loadDevices();
+    silentRefresh();
+    autoRefreshTimer = setInterval(silentRefresh, 15000);
+
+    return () => {
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+      }
+    };
   });
 </script>
 

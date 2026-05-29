@@ -8,6 +8,7 @@
     installScrcpy,
   } from './api';
   import { listen } from './api';
+  import { getErrorMessage } from './errors';
   import { open } from '@tauri-apps/plugin-dialog';
 
   let adbPathInput = $state('');
@@ -35,8 +36,9 @@
       store.adbPath = await getAdbPath();
       adbPathInput = store.adbPath;
       adbValid = true;
-    } catch {
+    } catch (e) {
       adbValid = false;
+      store.showStatus(getErrorMessage(e, 'Failed to load ADB path'));
     }
     try {
       store.scrcpyStatus = await detectScrcpyStatus();
@@ -72,9 +74,9 @@
       if (await applyAdbPath(path)) {
         store.showStatus('ADB path detected');
       }
-    } catch {
+    } catch (e) {
       adbValid = false;
-      store.showStatus('Could not detect ADB');
+      store.showStatus(getErrorMessage(e, 'Could not detect ADB'));
     }
   }
 
@@ -84,9 +86,9 @@
       store.adbPath = path;
       adbValid = true;
       return true;
-    } catch {
+    } catch (e) {
       adbValid = false;
-      store.showStatus('Invalid ADB path');
+      store.showStatus(getErrorMessage(e, 'Invalid ADB path'));
       return false;
     }
   }
@@ -111,8 +113,9 @@
       store.scrcpyStatus = await detectScrcpyStatus();
       store.showStatus('Scrcpy installed');
     } catch (e) {
-      store.scrcpyInstallLog += '\nInstallation failed.\n';
-      store.showStatus('Scrcpy install failed');
+      const message = getErrorMessage(e, 'Scrcpy install failed');
+      store.scrcpyInstallLog += `\n${message}\n`;
+      store.showStatus(message);
     } finally {
       store.isInstallingScrcpy = false;
       if (unlisten) {

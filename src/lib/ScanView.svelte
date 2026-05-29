@@ -2,6 +2,7 @@
   import { store } from './stores.svelte';
   import { scanNetwork, addDevice, getDevices } from './api';
   import { listen } from './api';
+  import { getErrorMessage } from './errors';
   import type { ScanResult } from './types';
 
   let scanLogEl: HTMLDivElement | undefined = $state();
@@ -40,7 +41,7 @@
       store.devices = await getDevices();
       store.scanLog += `\nScan complete. Found ${results.length} device(s).\n`;
     } catch (e) {
-      store.scanLog += '\nScan failed.\n';
+      store.scanLog += `\n${getErrorMessage(e, 'Scan failed')}.\n`;
     } finally {
       store.isScanning = false;
       cleanup();
@@ -66,7 +67,7 @@
       store.devices = await getDevices();
       store.showStatus('Device added');
     } catch (e) {
-      store.showStatus('Failed to add device');
+      store.showStatus(getErrorMessage(e, 'Failed to add device'));
     }
   }
 

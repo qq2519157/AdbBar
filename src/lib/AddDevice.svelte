@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from './stores.svelte';
   import { addDevice, getDevices } from './api';
+  import { getErrorMessage } from './errors';
 
   let name = $state('');
   let ip = $state('');
@@ -41,7 +42,7 @@
       store.showStatus('Device added');
       store.navigate('main');
     } catch (e) {
-      error = 'Failed to add device';
+      error = getErrorMessage(e, 'Failed to add device');
     } finally {
       saving = false;
     }
