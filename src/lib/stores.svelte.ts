@@ -1,12 +1,26 @@
-import type { AdbDevice, ScanResult, ScrcpyStatus } from './types';
+import type { AdbDevice, ScanProgress, ScanResult, ScanSession, ScrcpyStatus } from './types';
+
+const initialScanProgress = (found: ScanResult[] = []): ScanProgress => ({
+  scanned: 0,
+  total: 254,
+  found,
+});
+
+const createScanSession = (port = 5555): ScanSession => ({
+  port,
+  progress: initialScanProgress(),
+  results: [],
+  error: null,
+  startedAt: null,
+  completedAt: null,
+});
 
 class AppStore {
   devices = $state<AdbDevice[]>([]);
   page = $state<'main' | 'addDevice' | 'scan' | 'settings'>('main');
   statusMessage = $state<string | null>(null);
   isRefreshing = $state(false);
-  scanLog = $state('');
-  scanResults = $state<ScanResult[]>([]);
+  scanSession = $state<ScanSession>(createScanSession());
   isScanning = $state(false);
   adbPath = $state('');
   scrcpyStatus = $state<ScrcpyStatus | null>(null);
@@ -24,6 +38,45 @@ class AppStore {
 
   navigate(page: 'main' | 'addDevice' | 'scan' | 'settings') {
     this.page = page;
+  }
+
+  startScanSession(port: number) {
+    this.scanSession = {
+      ...createScanSession(port),
+      startedAt: Date.now(),
+    };
+    this.isScanning = true;
+  }
+
+  updateScanProgress(progress: ScanProgress) {
+    this.scanSession = {
+      ...this.scanSession,
+      progress,
+    };
+  }
+
+  completeScanSession(results: ScanResult[]) {
+    this.scanSession = {
+      ...this.scanSession,
+      results,
+      progress: {
+        ...this.scanSession.progress,
+        scanned: this.scanSession.progress.total,
+        found: results,
+      },
+      error: null,
+      completedAt: Date.now(),
+    };
+    this.isScanning = false;
+  }
+
+  failScanSession(error: string) {
+    this.scanSession = {
+      ...this.scanSession,
+      error,
+      completedAt: Date.now(),
+    };
+    this.isScanning = false;
   }
 }
 
