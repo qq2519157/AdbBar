@@ -11,6 +11,21 @@ export interface ScanResult {
   port: number;
 }
 
+export interface ScanProgress {
+  scanned: number;
+  total: number;
+  found: ScanResult[];
+}
+
+export interface ScanSession {
+  port: number;
+  progress: ScanProgress;
+  results: ScanResult[];
+  error: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+}
+
 export interface ScrcpyStatus {
   installed: boolean;
   path: string | null;

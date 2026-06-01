@@ -3,21 +3,38 @@
   import { scanNetwork, addDevice, getDevices } from './api';
   import { listen } from './api';
   import { getErrorMessage } from './errors';
-  import type { ScanResult } from './types';
+  import type { ScanProgress, ScanResult } from './types';
 
-  let scanLogEl: HTMLDivElement | undefined = $state();
   let unlisten: (() => void) | null = $state(null);
+  let portInput = $state(String(store.scanSession.port));
+  let localError = $state<string | null>(null);
+  let startedOnMount = $state(false);
 
-  const scanLog = $derived(store.scanLog);
-  const scanResults = $derived(store.scanResults);
+  const scanSession = $derived(store.scanSession);
   const isScanning = $derived(store.isScanning);
   const devices = $derived(store.devices);
-
-  $effect(() => {
-    // Auto-scroll log when it updates
-    if (scanLogEl) {
-      scanLogEl.scrollTop = scanLogEl.scrollHeight;
+  const visibleResults = $derived.by(() => {
+    if (scanSession.results.length > 0) {
+      return scanSession.results;
     }
+    return scanSession.progress.found;
+  });
+  const hasFinished = $derived(scanSession.completedAt !== null && !isScanning);
+  const progressPercent = $derived.by(() => {
+    if (scanSession.progress.total <= 0) {
+      return 0;
+    }
+    return Math.min(
+      100,
+      Math.round((scanSession.progress.scanned / scanSession.progress.total) * 100)
+    );
+  });
+  const elapsedLabel = $derived.by(() => {
+    if (!scanSession.startedAt) {
+      return '0s';
+    }
+    const end = scanSession.completedAt ?? Date.now();
+    return `${Math.max(0, Math.round((end - scanSession.startedAt) / 1000))}s`;
   });
 
   function handleBack() {
@@ -25,25 +42,40 @@
     store.navigate('main');
   }
 
+  function parsePort(): number | null {
+    const port = Number.parseInt(portInput.trim(), 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return null;
+    }
+    return port;
+  }
+
   async function startScan() {
-    store.scanLog = '';
-    store.scanResults = [];
-    store.isScanning = true;
+    if (isScanning) {
+      return;
+    }
+
+    const port = parsePort();
+    if (!port) {
+      localError = 'Port must be 1-65535';
+      return;
+    }
+
+    localError = null;
+    cleanup();
+    store.startScanSession(port);
 
     try {
-      // Listen for scan progress events
-      unlisten = await listen<{ scanned: number; total: number; found: { ip: string; port: number }[] }>('scan-progress', (progress) => {
-        store.scanLog = `Scanning ${progress.scanned}/${progress.total}... Found: ${progress.found.length}\n`;
+      unlisten = await listen<ScanProgress>('scan-progress', (progress) => {
+        store.updateScanProgress(progress);
       });
 
-      const results = await scanNetwork();
-      store.scanResults = results;
+      const results = await scanNetwork(port);
       store.devices = await getDevices();
-      store.scanLog += `\nScan complete. Found ${results.length} device(s).\n`;
+      store.completeScanSession(results);
     } catch (e) {
-      store.scanLog += `\n${getErrorMessage(e, 'Scan failed')}.\n`;
+      store.failScanSession(getErrorMessage(e, 'Scan failed'));
     } finally {
-      store.isScanning = false;
       cleanup();
     }
   }
@@ -72,7 +104,11 @@
   }
 
   $effect(() => {
-    startScan();
+    if (!startedOnMount) {
+      startedOnMount = true;
+      startScan();
+    }
+
     return () => {
       cleanup();
     };
@@ -86,26 +122,64 @@
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
-    <h1 class="page-title">Discovered Devices</h1>
+    <h1 class="page-title">Scan Network</h1>
     {#if isScanning}
-      <span class="scanning-badge">Scanning...</span>
+      <span class="scanning-badge">Scanning</span>
     {/if}
   </header>
 
-  <div class="scan-log" bind:this={scanLogEl}>
-    {#if scanLog}
-      <pre class="log-text">{scanLog}</pre>
-    {:else if isScanning}
-      <pre class="log-text">Starting network scan...</pre>
-    {:else}
-      <pre class="log-text">Ready to scan</pre>
-    {/if}
+  <section class="scan-controls">
+    <label class="port-field">
+      <span class="label">ADB Port</span>
+      <input
+        class="port-input"
+        type="number"
+        min="1"
+        max="65535"
+        bind:value={portInput}
+        disabled={isScanning}
+      />
+    </label>
+    <button class="scan-now-btn" onclick={startScan} disabled={isScanning}>
+      {isScanning ? 'Scanning...' : 'Scan'}
+    </button>
+  </section>
+
+  <section class="progress-panel">
+    <div class="progress-topline">
+      <span class="progress-title">
+        {#if isScanning}
+          Checking local subnet
+        {:else if hasFinished}
+          Scan complete
+        {:else}
+          Ready
+        {/if}
+      </span>
+      <span class="progress-percent">{progressPercent}%</span>
+    </div>
+    <div class="progress-track" aria-label="Scan progress">
+      <div class="progress-fill" style="width: {progressPercent}%;"></div>
+    </div>
+    <div class="progress-meta">
+      <span>{scanSession.progress.scanned}/{scanSession.progress.total} hosts</span>
+      <span>{visibleResults.length} found</span>
+      <span>{elapsedLabel}</span>
+    </div>
+  </section>
+
+  {#if localError || scanSession.error}
+    <p class="scan-error">{localError ?? scanSession.error}</p>
+  {/if}
+
+  <div class="results-header">
+    <span>Results</span>
+    <span>{visibleResults.length}</span>
   </div>
 
-  {#if scanResults.length > 0}
-    <div class="results-label">Found Devices</div>
-    <div class="results-list">
-      {#each scanResults as result}
+  <div class="results-list">
+    {#if visibleResults.length > 0}
+      {#each visibleResults as result (`${result.ip}:${result.port}`)}
         <div class="result-row">
           <div class="result-info">
             <span class="result-ip">{result.ip}</span>
@@ -118,8 +192,18 @@
           {/if}
         </div>
       {/each}
-    </div>
-  {/if}
+    {:else}
+      <div class="empty-results">
+        {#if isScanning}
+          <span>Waiting for devices...</span>
+        {:else if hasFinished}
+          <span>No devices found on port {scanSession.port}</span>
+        {:else}
+          <span>Start a scan to discover devices</span>
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   <footer class="scan-footer">
     <button class="glass-btn" onclick={startScan} disabled={isScanning}>
@@ -191,28 +275,136 @@
     50% { opacity: 0.5; }
   }
 
-  .scan-log {
-    flex: 0 0 auto;
-    max-height: 160px;
-    overflow-y: auto;
-    margin: 8px 12px;
-    padding: 8px 10px;
-    background: rgba(0, 0, 0, 0.3);
+  .scan-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 12px 14px 8px;
+    align-items: end;
+  }
+
+  .port-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #777;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .port-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 7px 9px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+    font-size: 13px;
+    outline: none;
   }
 
-  .log-text {
-    margin: 0;
-    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-    font-size: 11px;
-    line-height: 1.5;
+  .port-input:focus {
+    border-color: rgba(100, 180, 255, 0.4);
+    box-shadow: 0 0 0 2px rgba(100, 180, 255, 0.1);
+  }
+
+  .port-input:disabled {
+    opacity: 0.6;
+  }
+
+  .scan-now-btn {
+    min-width: 72px;
+    min-height: 32px;
+    padding: 7px 12px;
+    background: rgba(100, 180, 255, 0.15);
+    border: 1px solid rgba(100, 180, 255, 0.3);
+    border-radius: 8px;
     color: #8cb4ff;
-    white-space: pre-wrap;
-    word-break: break-all;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
   }
 
-  .results-label {
+  .scan-now-btn:hover {
+    background: rgba(100, 180, 255, 0.25);
+    border-color: rgba(100, 180, 255, 0.5);
+  }
+
+  .scan-now-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .progress-panel {
+    margin: 0 12px 8px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+  }
+
+  .progress-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .progress-title {
+    font-size: 12px;
+    color: #cfcfcf;
+  }
+
+  .progress-percent {
+    font-size: 12px;
+    color: #8cb4ff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .progress-track {
+    height: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #8cb4ff, #81c784);
+    border-radius: inherit;
+    transition: width 0.18s ease;
+  }
+
+  .progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+    color: #888;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scan-error {
+    margin: 0 12px 8px;
+    padding: 7px 10px;
+    color: #ff8a8a;
+    background: rgba(255, 100, 100, 0.08);
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .results-header {
+    display: flex;
+    justify-content: space-between;
     padding: 6px 14px 4px;
     font-size: 10px;
     font-weight: 600;
@@ -231,6 +423,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    min-height: 38px;
     padding: 8px 10px;
     border-radius: 8px;
     transition: background 0.12s ease;
@@ -243,7 +436,7 @@
   .result-info {
     display: flex;
     align-items: baseline;
-    gap: 0;
+    min-width: 0;
   }
 
   .result-ip {
@@ -280,8 +473,19 @@
     font-size: 11px;
     padding: 4px 10px;
     background: rgba(255, 255, 255, 0.05);
-    color: #666;
+    color: #777;
     border-radius: 6px;
+  }
+
+  .empty-results {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 80px;
+    color: #777;
+    font-size: 12px;
+    text-align: center;
   }
 
   .scan-footer {
