@@ -10,8 +10,10 @@
   import { listen } from './api';
   import { getErrorMessage } from './errors';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { getVersion } from '@tauri-apps/api/app';
 
   let adbPathInput = $state('');
+  let appVersion = $state('');
   let adbValid = $state<boolean | null>(null);
   let unlisten: (() => void) | null = $state(null);
 
@@ -29,6 +31,10 @@
 
   $effect(() => {
     loadSettings();
+  });
+
+  $effect(() => {
+    getVersion().then((v) => (appVersion = v));
   });
 
   async function loadSettings() {
@@ -221,6 +227,21 @@
           <pre class="log-text">{scrcpyInstallLog}</pre>
         </div>
       {/if}
+    </section>
+
+    <!-- About Section -->
+    <section class="section">
+      <h2 class="section-title">About</h2>
+      <div class="about-info">
+        <div class="about-row">
+          <span class="about-label">ADB Bar</span>
+          {#if appVersion}
+            <span class="about-version">v{appVersion}</span>
+          {:else}
+            <span class="about-version">Loading...</span>
+          {/if}
+        </div>
+      </div>
     </section>
   </div>
 </div>
@@ -459,5 +480,30 @@
     color: #8cb4ff;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+
+  .about-info {
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .about-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .about-label {
+    font-size: 12px;
+    color: #ccc;
+    font-weight: 500;
+  }
+
+  .about-version {
+    font-size: 11px;
+    color: #888;
+    font-family: 'SF Mono', 'Menlo', monospace;
   }
 </style>
