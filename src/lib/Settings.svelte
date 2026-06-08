@@ -5,6 +5,7 @@
     detectAdbPath,
     setAdbPath,
     detectScrcpyStatus,
+    setScrcpyPath,
     installScrcpy,
     restartAdb,
     enableTcpip,
@@ -21,6 +22,7 @@
   let adbBusy = $state(false);
   let tcpipPort = $state(5555);
   let tcpipBusy = $state(false);
+  let scrcpyBusy = $state(false);
 
   const scrcpyStatus = $derived(store.scrcpyStatus);
   const scrcpyInstallLog = $derived(store.scrcpyInstallLog);
@@ -131,6 +133,42 @@
       store.showStatus(getErrorMessage(e, 'Failed to enable TCP/IP'));
     } finally {
       tcpipBusy = false;
+    }
+  }
+
+  async function handleScrcpyBrowse() {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+      });
+      if (selected) {
+        const filePath = typeof selected === 'string' ? selected : selected;
+        scrcpyBusy = true;
+        await setScrcpyPath(filePath as string);
+        store.scrcpyStatus = await detectScrcpyStatus();
+        store.showStatus('Scrcpy path set');
+      }
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, 'Invalid scrcpy path'));
+    } finally {
+      scrcpyBusy = false;
+    }
+  }
+
+  async function handleScrcpyAutoDetect() {
+    scrcpyBusy = true;
+    try {
+      store.scrcpyStatus = await detectScrcpyStatus();
+      if (store.scrcpyStatus?.installed) {
+        store.showStatus('Scrcpy detected');
+      } else {
+        store.showStatus('Scrcpy not found');
+      }
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, 'Detection failed'));
+    } finally {
+      scrcpyBusy = false;
     }
   }
 
@@ -282,19 +320,34 @@
         {/if}
       </div>
 
-      <button
-        class="glass-btn full"
-        onclick={handleInstallScrcpy}
-        disabled={isInstallingScrcpy}
-      >
-        {#if isInstallingScrcpy}
-          Installing...
-        {:else if scrcpyStatus?.installed}
-          Reinstall Scrcpy
-        {:else}
-          Install Scrcpy
-        {/if}
-      </button>
+      <div class="adb-buttons">
+        <button class="glass-btn small" onclick={handleScrcpyBrowse} disabled={scrcpyBusy}>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          Browse
+        </button>
+        <button class="glass-btn small" onclick={handleScrcpyAutoDetect} disabled={scrcpyBusy}>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          Auto Detect
+        </button>
+        <button
+          class="glass-btn small"
+          onclick={handleInstallScrcpy}
+          disabled={isInstallingScrcpy}
+        >
+          {#if isInstallingScrcpy}
+            Installing...
+          {:else if scrcpyStatus?.installed}
+            Reinstall
+          {:else}
+            Install
+          {/if}
+        </button>
+      </div>
 
       {#if scrcpyInstallLog}
         <div class="install-log" bind:this={installLogEl}>

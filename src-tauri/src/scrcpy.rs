@@ -21,6 +21,35 @@ impl ScrcpyService {
         }
     }
 
+    pub async fn set_path(&self, path: String) {
+        let mut guard = self.path.lock().await;
+        *guard = Some(path);
+    }
+
+    pub async fn validate_path(path: &str) -> Result<(), String> {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            return Err("scrcpy path cannot be empty".to_string());
+        }
+        if !PathBuf::from(&path).exists() {
+            return Err(format!("File not found: {}", path));
+        }
+        tokio::task::spawn_blocking(move || {
+            let output = std::process::Command::new(&path)
+                .arg("--version")
+                .output()
+                .map_err(|e| format!("Failed to run scrcpy: {}", e))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                Err(format!("Invalid scrcpy: {}", stderr))
+            }
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+    }
+
     pub async fn detect(&self) -> ScrcpyStatus {
         // Check PATH environment
         if let Ok(path_var) = std::env::var("PATH") {

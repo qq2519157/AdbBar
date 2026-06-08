@@ -62,6 +62,10 @@ export async function detectScrcpyStatus(): Promise<ScrcpyStatus> {
   return invoke<ScrcpyStatus>('detect_scrcpy_status');
 }
 
+export async function setScrcpyPath(path: string): Promise<void> {
+  return invoke<void>('set_scrcpy_path', { path });
+}
+
 export async function installScrcpy(): Promise<void> {
   return invoke<void>('install_scrcpy');
 }

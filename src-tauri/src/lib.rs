@@ -173,6 +173,14 @@ async fn detect_scrcpy_status(state: tauri::State<'_, AppState>) -> Result<Scrcp
 }
 
 #[tauri::command]
+async fn set_scrcpy_path(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+    let path = path.trim().to_string();
+    ScrcpyService::validate_path(&path).await?;
+    state.scrcpy.set_path(path).await;
+    Ok(())
+}
+
+#[tauri::command]
 async fn install_scrcpy(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -263,6 +271,7 @@ where
             detect_adb_path,
             set_adb_path,
             detect_scrcpy_status,
+            set_scrcpy_path,
             install_scrcpy,
             restart_adb,
             enable_tcpip,
