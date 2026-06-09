@@ -7,8 +7,15 @@ use adb::AdbService;
 use scanner::{ScanProgress, ScanResult};
 use scrcpy::{ScrcpyService, ScrcpyStatus};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use store::{AdbDevice, StoreManager};
 use tauri::{Emitter, Manager, RunEvent};
+
+static JUST_SHOWN: AtomicBool = AtomicBool::new(false);
+
+pub fn mark_just_shown() {
+    JUST_SHOWN.store(true, Ordering::SeqCst);
+}
 
 pub struct AppState {
     pub adb: Arc<AdbService>,
@@ -98,6 +105,11 @@ async fn add_device(
 #[tauri::command]
 async fn remove_device(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     state.store.remove(&id).await
+}
+
+#[tauri::command]
+async fn clear_devices(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.store.clear().await
 }
 
 #[tauri::command]
@@ -263,6 +275,7 @@ where
             scan_network,
             add_device,
             remove_device,
+            clear_devices,
             open_shell,
             launch_scrcpy,
             take_screenshot,
@@ -295,7 +308,9 @@ where
                 label,
                 ..
             } if label == "main" => {
-                if let Some(window) = app.get_webview_window("main") {
+                if JUST_SHOWN.swap(false, Ordering::SeqCst) {
+                    // Ignore the first focus-loss after showing the window
+                } else if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
             }

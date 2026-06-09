@@ -1,8 +1,9 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import { store } from './stores.svelte';
-  import { getDevices, refreshAll } from './api';
+  import { getDevices, refreshAll, clearDevices } from './api';
   import { getErrorMessage } from './errors';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import DeviceRow from './DeviceRow.svelte';
 
   let loading = $state(false);
@@ -40,6 +41,24 @@
       store.devices = await refreshAll();
     } catch {
       // Keep background refresh quiet; manual refresh still reports errors.
+    }
+  }
+
+  async function handleClearAll() {
+    const confirmed = await ask('Remove all devices? This cannot be undone.', {
+      title: 'Clear All Devices',
+      kind: 'warning',
+      okLabel: 'Clear All',
+      cancelLabel: 'Cancel',
+    });
+    if (confirmed) {
+      try {
+        await clearDevices();
+        store.devices = [];
+        store.showStatus('All devices removed');
+      } catch (e) {
+        store.showStatus(getErrorMessage(e, 'Failed to clear devices'));
+      }
     }
   }
 
@@ -129,6 +148,12 @@
         <line x1="12" y1="12" x2="16" y2="12" />
       </svg>
       Scan
+    </button>
+    <button class="glass-btn danger" onclick={handleClearAll} disabled={devices.length === 0} title="Clear All">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      </svg>
     </button>
   </footer>
 </div>
@@ -272,6 +297,23 @@
 
   .glass-btn:active {
     transform: scale(0.97);
+  }
+
+  .glass-btn.danger {
+    background: rgba(255, 80, 80, 0.08);
+    border-color: rgba(255, 80, 80, 0.15);
+    color: #ff8a8a;
+  }
+
+  .glass-btn.danger:hover {
+    background: rgba(255, 80, 80, 0.18);
+    border-color: rgba(255, 80, 80, 0.3);
+    color: #ff6b6b;
+  }
+
+  .glass-btn.danger:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 
   .btn-icon {

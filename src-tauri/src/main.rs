@@ -72,6 +72,7 @@ fn tray_setup(app: &tauri::App) {
                         }
                         let _ = window.show();
                         let _ = window.set_focus();
+                        adbbar_tauri::mark_just_shown();
                     }
                 }
             }
@@ -81,5 +82,20 @@ fn tray_setup(app: &tauri::App) {
 }
 
 fn tray_icon_image() -> Image<'static> {
-    Image::new(include_bytes!("../icons/tray-adb.rgba"), 22, 22).to_owned()
+    let rgba = include_bytes!("../icons/tray-adb.rgba");
+    #[cfg(target_os = "windows")]
+    {
+        // Invert RGB so the icon is white on Windows (visible on dark taskbar)
+        let mut data = rgba.to_vec();
+        for pixel in data.chunks_exact_mut(4) {
+            pixel[0] = 255 - pixel[0];
+            pixel[1] = 255 - pixel[1];
+            pixel[2] = 255 - pixel[2];
+        }
+        Image::new_owned(data, 22, 22)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Image::new(rgba, 22, 22).to_owned()
+    }
 }

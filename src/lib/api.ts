@@ -30,6 +30,10 @@ export async function removeDevice(id: string): Promise<void> {
   return invoke<void>('remove_device', { id });
 }
 
+export async function clearDevices(): Promise<void> {
+  return invoke<void>('clear_devices');
+}
+
 export async function openShell(address: string): Promise<void> {
   return invoke<void>('open_shell', { address });
 }

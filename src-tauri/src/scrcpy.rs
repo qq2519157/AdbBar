@@ -3,6 +3,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+fn new_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct ScrcpyStatus {
     pub installed: bool,
@@ -35,7 +45,7 @@ impl ScrcpyService {
             return Err(format!("File not found: {}", path));
         }
         tokio::task::spawn_blocking(move || {
-            let output = std::process::Command::new(&path)
+            let output = new_command(&path)
                 .arg("--version")
                 .output()
                 .map_err(|e| format!("Failed to run scrcpy: {}", e))?;
@@ -128,7 +138,7 @@ impl ScrcpyService {
     async fn get_version(&self, path: &str) -> Option<String> {
         let path = path.to_string();
         tokio::task::spawn_blocking(move || {
-            let output = std::process::Command::new(&path)
+            let output = new_command(&path)
                 .arg("--version")
                 .output()
                 .ok()?;
@@ -328,30 +338,10 @@ impl ScrcpyService {
 
         let addr = address.to_string();
         tokio::task::spawn_blocking(move || {
-            #[cfg(target_os = "macos")]
-            {
-                std::process::Command::new(&scrcpy_path)
-                    .args(["-s", &addr])
-                    .spawn()
-                    .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
-            }
-
-            #[cfg(target_os = "windows")]
-            {
-                std::process::Command::new(&scrcpy_path)
-                    .args(["-s", &addr])
-                    .spawn()
-                    .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
-            }
-
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            {
-                std::process::Command::new(&scrcpy_path)
-                    .arg("-s")
-                    .arg(&addr)
-                    .spawn()
-                    .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
-            }
+            new_command(&scrcpy_path)
+                .args(["-s", &addr])
+                .spawn()
+                .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
 
             Ok(())
         })

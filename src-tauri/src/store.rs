@@ -107,6 +107,13 @@ impl StoreManager {
         self.save().await
     }
 
+    pub async fn clear(&self) -> Result<(), String> {
+        let mut guard = self.store.lock().await;
+        guard.devices.clear();
+        drop(guard);
+        self.save().await
+    }
+
     pub async fn update_statuses(&self, status_map: &HashMap<String, String>) -> Result<(), String> {
         let mut guard = self.store.lock().await;
         for device in &mut guard.devices {

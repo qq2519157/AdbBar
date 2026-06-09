@@ -6,6 +6,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
+fn new_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 pub struct AdbService {
     adb_path: Mutex<String>,
 }
@@ -72,10 +82,9 @@ impl AdbService {
         }
 
         tokio::task::spawn_blocking(move || {
-            let output = std::process::Command::new(&path)
-                .arg("version")
-                .output()
-                .map_err(|e| format!("Failed to run adb: {}", e))?;
+            let mut cmd = new_command(&path);
+            cmd.arg("version");
+            let output = cmd.output().map_err(|e| format!("Failed to run adb: {}", e))?;
 
             if output.status.success() {
                 Ok(())
@@ -95,12 +104,11 @@ impl AdbService {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
 
         tokio::task::spawn_blocking(move || {
-            let mut child = std::process::Command::new(&adb_path)
-                .args(&args)
+            let mut cmd = new_command(&adb_path);
+            cmd.args(&args)
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("Failed to spawn adb: {}", e))?;
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn adb: {}", e))?;
 
             let timeout = Duration::from_secs(timeout_secs);
             let start = std::time::Instant::now();
@@ -242,7 +250,7 @@ impl AdbService {
             let tmp_device = "/data/local/tmp/screenshot_adbbar.png";
 
             // Take screenshot on device
-            let status = std::process::Command::new(&adb_path)
+            let status = new_command(&adb_path)
                 .args(["-s", &addr, "shell", "screencap", "-p", tmp_device])
                 .output()
                 .map_err(|e| format!("Failed to take screenshot: {}", e))?;
@@ -255,7 +263,7 @@ impl AdbService {
             }
 
             // Pull to desktop
-            let status = std::process::Command::new(&adb_path)
+            let status = new_command(&adb_path)
                 .args(["-s", &addr, "pull", tmp_device, &fp.to_string_lossy()])
                 .output()
                 .map_err(|e| format!("Failed to pull screenshot: {}", e))?;
@@ -268,7 +276,7 @@ impl AdbService {
             }
 
             // Clean up temp file on device
-            let _ = std::process::Command::new(&adb_path)
+            let _ = new_command(&adb_path)
                 .args(["-s", &addr, "shell", "rm", tmp_device])
                 .output();
 
