@@ -86,6 +86,14 @@ export async function enableTcpip(address?: string, port?: number): Promise<stri
   return invoke<string>('enable_tcpip', { address, port });
 }
 
+export async function getLocale(): Promise<string> {
+  return invoke<string>('get_locale');
+}
+
+export async function setLocale(locale: string): Promise<void> {
+  return invoke<void>('set_locale', { locale });
+}
+
 export function listen<T>(event: string, handler: (payload: T) => void) {
   return tauriListen<T>(event, (e) => handler(e.payload));
 }

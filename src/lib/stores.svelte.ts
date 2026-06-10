@@ -1,4 +1,6 @@
 import type { AdbDevice, ScanProgress, ScanResult, ScanSession, ScrcpyStatus } from './types';
+import { type Locale, detectLocale } from './i18n';
+import { getLocale } from './api';
 
 const initialScanProgress = (found: ScanResult[] = []): ScanProgress => ({
   scanned: 0,
@@ -26,6 +28,7 @@ class AppStore {
   scrcpyStatus = $state<ScrcpyStatus | null>(null);
   scrcpyInstallLog = $state('');
   isInstallingScrcpy = $state(false);
+  locale = $state<Locale>(detectLocale());
 
   showStatus(msg: string, duration = 3000) {
     this.statusMessage = msg;
@@ -77,6 +80,17 @@ class AppStore {
       completedAt: Date.now(),
     };
     this.isScanning = false;
+  }
+
+  async initLocale() {
+    try {
+      const loc = await getLocale();
+      if (loc === 'en' || loc === 'zh') {
+        this.locale = loc;
+      }
+    } catch {
+      // Use detected locale as fallback
+    }
   }
 }
 

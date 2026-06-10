@@ -1,7 +1,8 @@
-mod adb;
+pub mod adb;
+pub mod locale;
 mod scanner;
 mod scrcpy;
-mod store;
+pub mod store;
 
 use adb::AdbService;
 use scanner::{ScanProgress, ScanResult};
@@ -9,12 +10,73 @@ use scrcpy::{ScrcpyService, ScrcpyStatus};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use store::{AdbDevice, StoreManager};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, RunEvent};
 
 static JUST_SHOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn mark_just_shown() {
     JUST_SHOWN.store(true, Ordering::SeqCst);
+}
+
+pub fn build_tray_menu(
+    app: &impl tauri::Manager<tauri::Wry>,
+    devices: &[AdbDevice],
+) -> Menu<tauri::Wry> {
+    let sep = PredefinedMenuItem::separator(app).unwrap();
+    let restart_adb =
+        MenuItem::with_id(app, "restart-adb", locale::tray_text("restart_adb"), true, None::<&str>).unwrap();
+    let enable_tcpip =
+        MenuItem::with_id(app, "enable-tcpip", locale::tray_text("enable_tcpip"), true, None::<&str>)
+            .unwrap();
+    let quit = MenuItem::with_id(app, "quit", locale::tray_text("quit"), true, None::<&str>).unwrap();
+
+    let connect_submenu = if devices.is_empty() {
+        let empty =
+            MenuItem::with_id(app, "no-devices", locale::tray_text("no_devices"), false, None::<&str>).unwrap();
+        Submenu::with_items(app, locale::tray_text("quick_connect"), true, &[&empty]).unwrap()
+    } else {
+        let items: Vec<MenuItem<tauri::Wry>> = devices
+            .iter()
+            .map(|d| {
+                let label = if d.status == "connected" {
+                    format!("🟢 {} ({})", d.name, d.address())
+                } else {
+                    format!("{} ({})", d.name, d.address())
+                };
+                MenuItem::with_id(
+                    app,
+                    format!("connect:{}", d.address()),
+                    label,
+                    d.status != "connected",
+                    None::<&str>,
+                )
+                .unwrap()
+            })
+            .collect();
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
+        Submenu::with_items(app, locale::tray_text("quick_connect"), true, &refs).unwrap()
+    };
+
+    Menu::with_items(
+        app,
+        &[
+            &connect_submenu,
+            &sep,
+            &restart_adb,
+            &enable_tcpip,
+            &sep,
+            &quit,
+        ],
+    )
+    .unwrap()
+}
+
+pub fn rebuild_tray_menu(app: &tauri::AppHandle, devices: Vec<AdbDevice>) {
+    let menu = build_tray_menu(app, &devices);
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_menu(Some(menu));
+    }
 }
 
 pub struct AppState {
@@ -29,39 +91,44 @@ async fn get_devices(state: tauri::State<'_, AppState>) -> Result<Vec<AdbDevice>
     Ok(guard.devices.clone())
 }
 
+async fn update_tray_menu(app: &tauri::AppHandle, state: &AppState) {
+    let guard = state.store.store.lock().await;
+    let devices = guard.devices.clone();
+    drop(guard);
+    crate::rebuild_tray_menu(app, devices);
+}
+
 #[tauri::command]
 async fn connect_device(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     address: String,
 ) -> Result<String, String> {
     let result = state.adb.connect(&address).await?;
-
-    // Refresh statuses after connect
     let _ = adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await;
-
+    update_tray_menu(&app, &state).await;
     Ok(result)
 }
 
 #[tauri::command]
 async fn disconnect_device(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     address: String,
 ) -> Result<String, String> {
     let result = state.adb.disconnect(&address).await?;
-
-    // Refresh statuses after disconnect
     let _ = adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await;
-
+    update_tray_menu(&app, &state).await;
     Ok(result)
 }
 
 #[tauri::command]
 async fn refresh_all(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     reconnect: Option<bool>,
 ) -> Result<Vec<AdbDevice>, String> {
     if reconnect.unwrap_or(false) {
-        // Re-attempt connection for all stored devices to detect dropped connections.
         let guard = state.store.store.lock().await;
         let addresses: Vec<String> = guard.devices.iter().map(|d| d.address()).collect();
         drop(guard);
@@ -69,7 +136,9 @@ async fn refresh_all(
             let _ = state.adb.connect(addr).await;
         }
     }
-    adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await
+    let result = adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await;
+    update_tray_menu(&app, &state).await;
+    result
 }
 
 #[tauri::command]
@@ -85,6 +154,7 @@ async fn scan_network(app: tauri::AppHandle, port: u16) -> Result<Vec<ScanResult
 
 #[tauri::command]
 async fn add_device(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     ip_address: String,
     port: u16,
@@ -99,17 +169,29 @@ async fn add_device(
     };
     let cloned = device.clone();
     state.store.add(device).await?;
+    update_tray_menu(&app, &state).await;
     Ok(cloned)
 }
 
 #[tauri::command]
-async fn remove_device(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
-    state.store.remove(&id).await
+async fn remove_device(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state.store.remove(&id).await?;
+    update_tray_menu(&app, &state).await;
+    Ok(())
 }
 
 #[tauri::command]
-async fn clear_devices(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.store.clear().await
+async fn clear_devices(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.store.clear().await?;
+    update_tray_menu(&app, &state).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -227,8 +309,43 @@ async fn enable_tcpip(
 }
 
 #[tauri::command]
+async fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
     app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_locale() -> Result<String, String> {
+    Ok(locale::current_locale().to_string())
+}
+
+#[tauri::command]
+async fn set_locale(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    locale: String,
+) -> Result<(), String> {
+    let locale = match locale.as_str() {
+        "en" | "zh" => locale,
+        _ => return Err("Invalid locale".to_string()),
+    };
+    // Persist
+    {
+        let mut guard = state.store.store.lock().await;
+        guard.locale = Some(locale.clone());
+    }
+    state.store.save().await?;
+    // Update runtime locale and rebuild tray menu
+    crate::locale::set_locale(&locale);
+    update_tray_menu(&app, &state).await;
     Ok(())
 }
 
@@ -252,6 +369,12 @@ where
                 let guard = tauri::async_runtime::block_on(store_manager.store.lock());
                 guard.adb_path.clone()
             };
+
+            let configured_locale = {
+                let guard = tauri::async_runtime::block_on(store_manager.store.lock());
+                guard.locale.clone()
+            };
+            locale::init_locale(configured_locale.as_deref());
 
             let adb_service = AdbService::new(configured_path);
             let scrcpy_service = ScrcpyService::new();
@@ -288,7 +411,10 @@ where
             install_scrcpy,
             restart_adb,
             enable_tcpip,
+            hide_window,
             quit_app,
+            get_locale,
+            set_locale,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

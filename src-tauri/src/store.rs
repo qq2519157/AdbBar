@@ -30,6 +30,8 @@ pub struct Store {
     pub devices: Vec<AdbDevice>,
     #[serde(default)]
     pub adb_path: Option<String>,
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 pub struct StoreManager {

@@ -3,6 +3,7 @@
   import { scanNetwork, addDevice, getDevices } from './api';
   import { listen } from './api';
   import { getErrorMessage } from './errors';
+  import { t } from './i18n';
   import type { ScanProgress, ScanResult } from './types';
 
   let unlisten: (() => void) | null = $state(null);
@@ -57,7 +58,7 @@
 
     const port = parsePort();
     if (!port) {
-      localError = 'Port must be 1-65535';
+      localError = t('scan.portError');
       return;
     }
 
@@ -74,7 +75,7 @@
       store.devices = await getDevices();
       store.completeScanSession(results);
     } catch (e) {
-      store.failScanSession(getErrorMessage(e, 'Scan failed'));
+      store.failScanSession(getErrorMessage(e, t('scan.failed')));
     } finally {
       cleanup();
     }
@@ -97,9 +98,9 @@
     try {
       await addDevice(`Device (${result.ip})`, result.ip, result.port);
       store.devices = await getDevices();
-      store.showStatus('Device added');
+      store.showStatus(t('scan.deviceAdded'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to add device'));
+      store.showStatus(getErrorMessage(e, t('scan.addFailed')));
     }
   }
 
@@ -122,15 +123,15 @@
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
-    <h1 class="page-title">Scan Network</h1>
+    <h1 class="page-title">{t('scan.title')}</h1>
     {#if isScanning}
-      <span class="scanning-badge">Scanning</span>
+      <span class="scanning-badge">{t('scan.scanning')}</span>
     {/if}
   </header>
 
   <section class="scan-controls">
     <label class="port-field">
-      <span class="label">ADB Port</span>
+      <span class="label">{t('scan.adbPort')}</span>
       <input
         class="port-input"
         type="number"
@@ -141,7 +142,7 @@
       />
     </label>
     <button class="scan-now-btn" onclick={startScan} disabled={isScanning}>
-      {isScanning ? 'Scanning...' : 'Scan'}
+      {isScanning ? t('scan.scanningBtn') : t('scan.scanBtn')}
     </button>
   </section>
 
@@ -149,11 +150,11 @@
     <div class="progress-topline">
       <span class="progress-title">
         {#if isScanning}
-          Checking local subnet
+          {t('scan.checking')}
         {:else if hasFinished}
-          Scan complete
+          {t('scan.complete')}
         {:else}
-          Ready
+          {t('scan.ready')}
         {/if}
       </span>
       <span class="progress-percent">{progressPercent}%</span>
@@ -162,8 +163,8 @@
       <div class="progress-fill" style="width: {progressPercent}%;"></div>
     </div>
     <div class="progress-meta">
-      <span>{scanSession.progress.scanned}/{scanSession.progress.total} hosts</span>
-      <span>{visibleResults.length} found</span>
+      <span>{scanSession.progress.scanned}/{scanSession.progress.total} {t('scan.hosts')}</span>
+      <span>{visibleResults.length} {t('scan.found')}</span>
       <span>{elapsedLabel}</span>
     </div>
   </section>
@@ -173,7 +174,7 @@
   {/if}
 
   <div class="results-header">
-    <span>Results</span>
+    <span>{t('scan.results')}</span>
     <span>{visibleResults.length}</span>
   </div>
 
@@ -186,20 +187,20 @@
             <span class="result-port">:{result.port}</span>
           </div>
           {#if isAdded(result)}
-            <span class="added-badge">Added</span>
+            <span class="added-badge">{t('scan.added')}</span>
           {:else}
-            <button class="add-btn" onclick={() => handleAdd(result)}>Add</button>
+            <button class="add-btn" onclick={() => handleAdd(result)}>{t('scan.add')}</button>
           {/if}
         </div>
       {/each}
     {:else}
       <div class="empty-results">
         {#if isScanning}
-          <span>Waiting for devices...</span>
+          <span>{t('scan.waiting')}</span>
         {:else if hasFinished}
-          <span>No devices found on port {scanSession.port}</span>
+          <span>{t('scan.noDevices', { port: scanSession.port })}</span>
         {:else}
-          <span>Start a scan to discover devices</span>
+          <span>{t('scan.startScan')}</span>
         {/if}
       </div>
     {/if}
@@ -207,10 +208,10 @@
 
   <footer class="scan-footer">
     <button class="glass-btn" onclick={startScan} disabled={isScanning}>
-      {isScanning ? 'Scanning...' : 'Scan Again'}
+      {isScanning ? t('scan.scanningBtn') : t('scan.scanAgain')}
     </button>
     <button class="glass-btn secondary" onclick={handleBack}>
-      Close
+      {t('scan.close')}
     </button>
   </footer>
 </div>

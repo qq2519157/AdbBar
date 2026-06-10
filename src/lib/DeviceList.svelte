@@ -1,10 +1,12 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import { store } from './stores.svelte';
-  import { getDevices, refreshAll, clearDevices } from './api';
+  import { getDevices, refreshAll, clearDevices, listen } from './api';
   import { getErrorMessage } from './errors';
+  import { t } from './i18n';
   import { ask } from '@tauri-apps/plugin-dialog';
   import DeviceRow from './DeviceRow.svelte';
+  import type { AdbDevice } from './types';
 
   let loading = $state(false);
   let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -18,7 +20,7 @@
     try {
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to load devices'));
+      store.showStatus(getErrorMessage(e, t('deviceList.loadFailed')));
     } finally {
       loading = false;
     }
@@ -28,9 +30,9 @@
     store.isRefreshing = true;
     try {
       store.devices = await refreshAll(true);
-      store.showStatus('Refreshed');
+      store.showStatus(t('deviceList.refreshed'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Refresh failed'));
+      store.showStatus(getErrorMessage(e, t('deviceList.refreshFailed')));
     } finally {
       store.isRefreshing = false;
     }
@@ -45,19 +47,19 @@
   }
 
   async function handleClearAll() {
-    const confirmed = await ask('Remove all devices? This cannot be undone.', {
-      title: 'Clear All Devices',
+    const confirmed = await ask(t('deviceList.clearConfirm'), {
+      title: t('deviceList.clearTitle'),
       kind: 'warning',
-      okLabel: 'Clear All',
-      cancelLabel: 'Cancel',
+      okLabel: t('deviceList.clearOk'),
+      cancelLabel: t('deviceList.clearCancel'),
     });
     if (confirmed) {
       try {
         await clearDevices();
         store.devices = [];
-        store.showStatus('All devices removed');
+        store.showStatus(t('deviceList.allCleared'));
       } catch (e) {
-        store.showStatus(getErrorMessage(e, 'Failed to clear devices'));
+        store.showStatus(getErrorMessage(e, t('deviceList.clearFailed')));
       }
     }
   }
@@ -67,24 +69,39 @@
     silentRefresh();
     autoRefreshTimer = setInterval(silentRefresh, 15000);
 
+    const unlistenShown = listen<void>('window-shown', () => {
+      silentRefresh();
+    });
+
+    const unlistenUpdated = listen<AdbDevice[]>('devices-updated', (devices) => {
+      store.devices = devices;
+    });
+
+    const unlistenRestarted = listen<void>('adb-restarted', () => {
+      silentRefresh();
+    });
+
     return () => {
       if (autoRefreshTimer) {
         clearInterval(autoRefreshTimer);
         autoRefreshTimer = null;
       }
+      unlistenShown.then(fn => fn());
+      unlistenUpdated.then(fn => fn());
+      unlistenRestarted.then(fn => fn());
     };
   });
 </script>
 
 <div class="device-list">
   <header class="header">
-    <h1 class="title">ADB Devices</h1>
+    <h1 class="title">{t('deviceList.title')}</h1>
     <div class="header-actions">
       <button
         class="icon-btn"
         onclick={handleRefresh}
         disabled={isRefreshing}
-        title="Refresh"
+        title={t('deviceList.refresh')}
       >
         <svg class="icon {isRefreshing ? 'spinning' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 2v6h-6" />
@@ -96,7 +113,7 @@
       <button
         class="icon-btn"
         onclick={() => store.navigate('settings')}
-        title="Settings"
+        title={t('deviceList.settings')}
       >
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3" />
@@ -115,7 +132,7 @@
   <div class="device-scroll">
     {#if loading && devices.length === 0}
       <div class="empty-state">
-        <p class="empty-text">Loading devices...</p>
+        <p class="empty-text">{t('deviceList.loading')}</p>
       </div>
     {:else if devices.length === 0}
       <div class="empty-state">
@@ -123,8 +140,8 @@
           <rect x="5" y="2" width="14" height="20" rx="2" />
           <line x1="12" y1="18" x2="12" y2="18.01" />
         </svg>
-        <p class="empty-text">No devices found</p>
-        <p class="empty-sub">Add a device or scan your network</p>
+        <p class="empty-text">{t('deviceList.empty')}</p>
+        <p class="empty-sub">{t('deviceList.emptySub')}</p>
       </div>
     {:else}
       {#each devices as device (device.id)}
@@ -139,7 +156,7 @@
         <line x1="12" y1="5" x2="12" y2="19" />
         <line x1="5" y1="12" x2="19" y2="12" />
       </svg>
-      Add Device
+      {t('deviceList.addDevice')}
     </button>
     <button class="glass-btn" onclick={() => store.navigate('scan')}>
       <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -147,9 +164,9 @@
         <line x1="12" y1="8" x2="12" y2="12" />
         <line x1="12" y1="12" x2="16" y2="12" />
       </svg>
-      Scan
+      {t('deviceList.scan')}
     </button>
-    <button class="glass-btn danger" onclick={handleClearAll} disabled={devices.length === 0} title="Clear All">
+    <button class="glass-btn danger" onclick={handleClearAll} disabled={devices.length === 0} title={t('deviceList.clearAll')}>
       <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6" />
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />

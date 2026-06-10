@@ -20,6 +20,8 @@ A cross-platform system tray app for managing ADB devices. Built with Tauri (Rus
 - ADB quick tools: restart ADB server, enable TCP/IP mode
 - Smart refresh: reconnects dropped connections on manual refresh
 - Device list persistence across restarts
+- Bilingual UI: English & Chinese (auto-detect system language)
+- System notifications for tray actions (connect, restart ADB, TCP/IP)
 
 ## Platforms
 
@@ -69,6 +71,8 @@ npx tauri build
 - ADB 快捷工具：重启 ADB 服务、一键开启 TCP/IP 模式
 - 智能刷新：手动刷新时自动重连已断开的设备
 - 设备列表持久化，重启后保留
+- 中英双语界面（自动检测系统语言）
+- 托盘操作系统通知（连接、重启 ADB、TCP/IP）
 
 ## 支持平台
 

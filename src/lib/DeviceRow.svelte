@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AdbDevice } from './types';
   import { store } from './stores.svelte';
+  import { t } from './i18n';
   import {
     connectDevice,
     disconnectDevice,
@@ -33,11 +34,11 @@
 
   const statusLabel = $derived.by(() => {
     switch (device.status) {
-      case 'connected': return 'Connected';
-      case 'connecting': return 'Connecting';
-      case 'unauthorized': return 'Unauthorized';
-      case 'offline': return 'Offline';
-      default: return 'Disconnected';
+      case 'connected': return t('deviceRow.connected');
+      case 'connecting': return t('deviceRow.connecting');
+      case 'unauthorized': return t('deviceRow.unauthorized');
+      case 'offline': return t('deviceRow.offline');
+      default: return t('deviceRow.disconnected');
     }
   });
 
@@ -45,10 +46,10 @@
     busy = true;
     try {
       const msg = await connectDevice(address);
-      store.showStatus(msg || 'Connected');
+      store.showStatus(msg || t('deviceRow.connected'));
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Connection failed'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.connectionFailed')));
     } finally {
       busy = false;
     }
@@ -59,10 +60,10 @@
     menuOpen = false;
     try {
       const msg = await disconnectDevice(address);
-      store.showStatus(msg || 'Disconnected');
+      store.showStatus(msg || t('deviceRow.disconnected'));
       store.devices = await getDevices();
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Disconnect failed'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.disconnectFailed')));
     } finally {
       busy = false;
     }
@@ -73,9 +74,9 @@
     try {
       await removeDevice(device.id);
       store.devices = await getDevices();
-      store.showStatus('Device removed');
+      store.showStatus(t('deviceRow.deviceRemoved'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to remove device'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.removeFailed')));
     }
   }
 
@@ -83,9 +84,9 @@
     menuOpen = false;
     try {
       await openShell(address);
-      store.showStatus('Shell opened');
+      store.showStatus(t('deviceRow.shellOpened'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to open shell'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.shellFailed')));
     }
   }
 
@@ -93,9 +94,9 @@
     menuOpen = false;
     try {
       await launchScrcpy(address);
-      store.showStatus('Scrcpy launched');
+      store.showStatus(t('deviceRow.scrcpyLaunched'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to launch scrcpy'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.scrcpyFailed')));
     }
   }
 
@@ -104,9 +105,9 @@
     busy = true;
     try {
       const path = await takeScreenshot(address);
-      store.showStatus(path ? `Saved: ${path}` : 'Screenshot taken');
+      store.showStatus(path ? t('deviceRow.screenshotSaved', { path }) : t('deviceRow.screenshotTaken'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Screenshot failed'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.screenshotFailed')));
     } finally {
       busy = false;
     }
@@ -123,10 +124,10 @@
         const filePath = typeof selected === 'string' ? selected : selected;
         busy = true;
         const msg = await installApk(address, filePath as string);
-        store.showStatus(msg || 'APK installed');
+        store.showStatus(msg || t('deviceRow.apkInstalled'));
       }
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'APK install failed'));
+      store.showStatus(getErrorMessage(e, t('deviceRow.apkInstallFailed')));
     } finally {
       busy = false;
     }
@@ -159,7 +160,7 @@
           onclick={handleConnect}
           disabled={busy}
         >
-          Connect
+          {t('deviceRow.connect')}
         </button>
       {:else if device.status === 'connected'}
         <button
@@ -167,11 +168,11 @@
           onclick={handleDisconnect}
           disabled={busy}
         >
-          Disconnect
+          {t('deviceRow.disconnect')}
         </button>
       {/if}
 
-      <button class="menu-btn" onclick={toggleMenu} title="Actions">
+      <button class="menu-btn" onclick={toggleMenu} title={t('deviceRow.actions')}>
         &#8942;
       </button>
     </div>
@@ -185,7 +186,7 @@
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
           </svg>
-          Shell
+          {t('deviceRow.shell')}
         </button>
         <button class="menu-item" onclick={handleScrcpy}>
           <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -193,14 +194,14 @@
             <line x1="8" y1="21" x2="16" y2="21" />
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
-          Scrcpy
+          {t('deviceRow.scrcpy')}
         </button>
         <button class="menu-item" onclick={handleScreenshot}>
           <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
             <circle cx="12" cy="13" r="4" />
           </svg>
-          Screenshot
+          {t('deviceRow.screenshot')}
         </button>
         <button class="menu-item" onclick={handleInstallApk}>
           <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -208,7 +209,7 @@
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          Install APK
+          {t('deviceRow.installApk')}
         </button>
         <div class="menu-divider"></div>
       {/if}
@@ -217,7 +218,7 @@
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
         </svg>
-        Remove Device
+        {t('deviceRow.removeDevice')}
       </button>
     </div>
   {/if}

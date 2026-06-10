@@ -1,31 +1,27 @@
 <script lang="ts">
   import { store } from './lib/stores.svelte';
-  import { quitApp } from './lib/api';
+  import { t } from './lib/i18n';
+  import { invoke } from '@tauri-apps/api/core';
   import DeviceList from './lib/DeviceList.svelte';
   import AddDevice from './lib/AddDevice.svelte';
   import ScanView from './lib/ScanView.svelte';
   import Settings from './lib/Settings.svelte';
-  import { ask } from '@tauri-apps/plugin-dialog';
 
   const page = $derived(store.page);
 
-  async function handleClose() {
-    const confirmed = await ask('Are you sure you want to quit ADB Bar?', {
-      title: 'Quit ADB Bar',
-      kind: 'warning',
-      okLabel: 'Quit',
-      cancelLabel: 'Cancel',
-    });
-    if (confirmed) {
-      await quitApp();
-    }
+  $effect(() => {
+    store.initLocale();
+  });
+
+  function handleClose() {
+    invoke('hide_window');
   }
 </script>
 
 <div class="app-container">
   <div class="titlebar">
-    <span class="titlebar-text">ADB Bar</span>
-    <button class="close-btn" onclick={handleClose} title="Quit">
+    <span class="titlebar-text">{t('app.title')}</span>
+    <button class="close-btn" onclick={handleClose} title={t('tray.quit')}>
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
         <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       </svg>

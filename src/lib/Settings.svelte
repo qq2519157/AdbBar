@@ -9,9 +9,12 @@
     installScrcpy,
     restartAdb,
     enableTcpip,
+    setLocale,
   } from './api';
   import { listen } from './api';
   import { getErrorMessage } from './errors';
+  import { t } from './i18n';
+  import type { Locale } from './i18n';
   import { open } from '@tauri-apps/plugin-dialog';
   import { getVersion } from '@tauri-apps/api/app';
 
@@ -51,7 +54,7 @@
       adbValid = true;
     } catch (e) {
       adbValid = false;
-      store.showStatus(getErrorMessage(e, 'Failed to load ADB path'));
+      store.showStatus(getErrorMessage(e, t('settings.adbPath')));
     }
     try {
       store.scrcpyStatus = await detectScrcpyStatus();
@@ -62,6 +65,15 @@
 
   function handleBack() {
     store.navigate('main');
+  }
+
+  async function handleSetLocale(loc: Locale) {
+    try {
+      store.locale = loc;
+      await setLocale(loc);
+    } catch {
+      // ignore
+    }
   }
 
   async function handleBrowse() {
@@ -85,11 +97,11 @@
       const path = await detectAdbPath();
       adbPathInput = path;
       if (await applyAdbPath(path)) {
-        store.showStatus('ADB path detected');
+        store.showStatus(t('settings.adbDetected'));
       }
     } catch (e) {
       adbValid = false;
-      store.showStatus(getErrorMessage(e, 'Could not detect ADB'));
+      store.showStatus(getErrorMessage(e, t('settings.adbDetectFailed')));
     }
   }
 
@@ -101,7 +113,7 @@
       return true;
     } catch (e) {
       adbValid = false;
-      store.showStatus(getErrorMessage(e, 'Invalid ADB path'));
+      store.showStatus(getErrorMessage(e, t('settings.invalidAdbPath')));
       return false;
     }
   }
@@ -116,9 +128,9 @@
     adbBusy = true;
     try {
       const msg = await restartAdb();
-      store.showStatus(msg || 'ADB server restarted');
+      store.showStatus(msg || t('settings.adbRestarted'));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to restart ADB'));
+      store.showStatus(getErrorMessage(e, t('settings.restartFailed')));
     } finally {
       adbBusy = false;
     }
@@ -128,9 +140,9 @@
     tcpipBusy = true;
     try {
       const msg = await enableTcpip(undefined, tcpipPort);
-      store.showStatus(msg || `TCP/IP mode enabled on port ${tcpipPort}`);
+      store.showStatus(msg || t('settings.tcpipEnabled', { port: tcpipPort }));
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Failed to enable TCP/IP'));
+      store.showStatus(getErrorMessage(e, t('settings.tcpipFailed')));
     } finally {
       tcpipBusy = false;
     }
@@ -147,10 +159,10 @@
         scrcpyBusy = true;
         await setScrcpyPath(filePath as string);
         store.scrcpyStatus = await detectScrcpyStatus();
-        store.showStatus('Scrcpy path set');
+        store.showStatus(t('settings.scrcpyPathSet'));
       }
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Invalid scrcpy path'));
+      store.showStatus(getErrorMessage(e, t('settings.invalidScrcpyPath')));
     } finally {
       scrcpyBusy = false;
     }
@@ -161,12 +173,12 @@
     try {
       store.scrcpyStatus = await detectScrcpyStatus();
       if (store.scrcpyStatus?.installed) {
-        store.showStatus('Scrcpy detected');
+        store.showStatus(t('settings.scrcpyDetected'));
       } else {
-        store.showStatus('Scrcpy not found');
+        store.showStatus(t('settings.scrcpyNotFound'));
       }
     } catch (e) {
-      store.showStatus(getErrorMessage(e, 'Detection failed'));
+      store.showStatus(getErrorMessage(e, t('settings.detectionFailed')));
     } finally {
       scrcpyBusy = false;
     }
@@ -182,11 +194,11 @@
       });
 
       await installScrcpy();
-      store.scrcpyInstallLog += '\nInstallation complete.\n';
+      store.scrcpyInstallLog += '\n' + t('settings.installComplete') + '\n';
       store.scrcpyStatus = await detectScrcpyStatus();
-      store.showStatus('Scrcpy installed');
+      store.showStatus(t('settings.scrcpyInstalled'));
     } catch (e) {
-      const message = getErrorMessage(e, 'Scrcpy install failed');
+      const message = getErrorMessage(e, t('settings.scrcpyInstallFailed'));
       store.scrcpyInstallLog += `\n${message}\n`;
       store.showStatus(message);
     } finally {
@@ -206,19 +218,34 @@
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
-    <h1 class="page-title">Settings</h1>
+    <h1 class="page-title">{t('settings.title')}</h1>
   </header>
 
   <div class="settings-content">
+    <!-- Language Section -->
+    <section class="section">
+      <h2 class="section-title">{t('settings.language')}</h2>
+      <div class="locale-toggle">
+        <button
+          class="locale-btn {store.locale === 'en' ? 'active' : ''}"
+          onclick={() => handleSetLocale('en')}
+        >English</button>
+        <button
+          class="locale-btn {store.locale === 'zh' ? 'active' : ''}"
+          onclick={() => handleSetLocale('zh')}
+        >中文</button>
+      </div>
+    </section>
+
     <!-- ADB Path Section -->
     <section class="section">
-      <h2 class="section-title">ADB Path</h2>
+      <h2 class="section-title">{t('settings.adbPath')}</h2>
       <div class="adb-row">
         <div class="input-wrap">
           <input
             class="input"
             type="text"
-            placeholder="/usr/bin/adb"
+            placeholder={t('settings.adbPlaceholder')}
             bind:value={adbPathInput}
             onblur={handleAdbInputBlur}
           />
@@ -234,21 +261,21 @@
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          Browse
+          {t('settings.browse')}
         </button>
         <button class="glass-btn small" onclick={handleAutoDetect}>
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          Auto Detect
+          {t('settings.autoDetect')}
         </button>
       </div>
     </section>
 
     <!-- ADB Tools Section -->
     <section class="section">
-      <h2 class="section-title">ADB Tools</h2>
+      <h2 class="section-title">{t('settings.adbTools')}</h2>
       <button
         class="glass-btn full"
         onclick={handleRestartAdb}
@@ -260,7 +287,7 @@
           <path d="M3 22v-6h6" />
           <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
         </svg>
-        {adbBusy ? 'Restarting...' : 'Restart ADB Server'}
+        {adbBusy ? t('settings.restarting') : t('settings.restartAdb')}
       </button>
 
       <div class="tcpip-row">
@@ -285,21 +312,21 @@
             <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
             <circle cx="12" cy="20" r="1" fill="currentColor" />
           </svg>
-          {tcpipBusy ? 'Enabling...' : 'Enable TCP/IP'}
+          {tcpipBusy ? t('settings.enabling') : t('settings.enableTcpip')}
         </button>
       </div>
-      <p class="hint">Connect device via USB first, then enable TCP/IP mode.</p>
+      <p class="hint">{t('settings.tcpipHint')}</p>
     </section>
 
     <!-- Scrcpy Section -->
     <section class="section">
-      <h2 class="section-title">Scrcpy</h2>
+      <h2 class="section-title">{t('settings.scrcpy')}</h2>
       <div class="scrcpy-status">
         {#if scrcpyStatus}
           {#if scrcpyStatus.installed}
             <div class="status-row">
               <span class="status-dot installed"></span>
-              <span class="status-text">Installed</span>
+              <span class="status-text">{t('settings.installed')}</span>
               {#if scrcpyStatus.version}
                 <span class="status-version">v{scrcpyStatus.version}</span>
               {/if}
@@ -310,12 +337,12 @@
           {:else}
             <div class="status-row">
               <span class="status-dot not-installed"></span>
-              <span class="status-text">Not Installed</span>
+              <span class="status-text">{t('settings.notInstalled')}</span>
             </div>
           {/if}
         {:else}
           <div class="status-row">
-            <span class="status-text">Checking...</span>
+            <span class="status-text">{t('settings.checking')}</span>
           </div>
         {/if}
       </div>
@@ -325,14 +352,14 @@
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          Browse
+          {t('settings.browse')}
         </button>
         <button class="glass-btn small" onclick={handleScrcpyAutoDetect} disabled={scrcpyBusy}>
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          Auto Detect
+          {t('settings.autoDetect')}
         </button>
         <button
           class="glass-btn small"
@@ -340,11 +367,11 @@
           disabled={isInstallingScrcpy}
         >
           {#if isInstallingScrcpy}
-            Installing...
+            {t('settings.installing')}
           {:else if scrcpyStatus?.installed}
-            Reinstall
+            {t('settings.reinstall')}
           {:else}
-            Install
+            {t('settings.install')}
           {/if}
         </button>
       </div>
@@ -358,14 +385,14 @@
 
     <!-- About Section -->
     <section class="section">
-      <h2 class="section-title">About</h2>
+      <h2 class="section-title">{t('settings.about')}</h2>
       <div class="about-info">
         <div class="about-row">
           <span class="about-label">ADB Bar</span>
           {#if appVersion}
             <span class="about-version">v{appVersion}</span>
           {:else}
-            <span class="about-version">Loading...</span>
+            <span class="about-version">{t('settings.loading')}</span>
           {/if}
         </div>
       </div>
@@ -426,6 +453,35 @@
 
   .section {
     margin-bottom: 20px;
+  }
+
+  .locale-toggle {
+    display: flex;
+    gap: 6px;
+  }
+
+  .locale-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #999;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .locale-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ccc;
+  }
+
+  .locale-btn.active {
+    background: rgba(100, 180, 255, 0.15);
+    border-color: rgba(100, 180, 255, 0.3);
+    color: #8cb4ff;
   }
 
   .section-title {

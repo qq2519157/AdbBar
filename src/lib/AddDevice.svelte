@@ -2,6 +2,7 @@
   import { store } from './stores.svelte';
   import { addDevice, getDevices } from './api';
   import { getErrorMessage } from './errors';
+  import { t } from './i18n';
 
   let name = $state('');
   let ip = $state('');
@@ -21,17 +22,17 @@
     error = '';
 
     if (!name.trim()) {
-      error = 'Device name is required';
+      error = t('addDevice.nameRequired');
       return;
     }
     if (!ip.trim()) {
-      error = 'IP address is required';
+      error = t('addDevice.ipRequired');
       return;
     }
 
     const portNum = parseInt(port, 10);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      error = 'Port must be 1-65535';
+      error = t('addDevice.portError');
       return;
     }
 
@@ -39,10 +40,10 @@
     try {
       await addDevice(name.trim(), ip.trim(), portNum);
       store.devices = await getDevices();
-      store.showStatus('Device added');
+      store.showStatus(t('addDevice.deviceAdded'));
       store.navigate('main');
     } catch (e) {
-      error = getErrorMessage(e, 'Failed to add device');
+      error = getErrorMessage(e, t('addDevice.addFailed'));
     } finally {
       saving = false;
     }
@@ -61,38 +62,38 @@
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
-    <h1 class="page-title">Add Device</h1>
+    <h1 class="page-title">{t('addDevice.title')}</h1>
   </header>
 
   <form class="form" onsubmit={handleSubmit}>
     <label class="field">
-      <span class="label">Device Name</span>
+      <span class="label">{t('addDevice.deviceName')}</span>
       <input
         class="input"
         type="text"
-        placeholder="My Phone"
+        placeholder={t('addDevice.namePlaceholder')}
         bind:value={name}
         autocomplete="off"
       />
     </label>
 
     <label class="field">
-      <span class="label">IP Address</span>
+      <span class="label">{t('addDevice.ipAddress')}</span>
       <input
         class="input"
         type="text"
-        placeholder="192.168.1.100"
+        placeholder={t('addDevice.ipPlaceholder')}
         bind:value={ip}
         autocomplete="off"
       />
     </label>
 
     <label class="field">
-      <span class="label">Port</span>
+      <span class="label">{t('addDevice.port')}</span>
       <input
         class="input"
         type="number"
-        placeholder="5555"
+        placeholder={t('addDevice.portPlaceholder')}
         bind:value={port}
         min="1"
         max="65535"
@@ -104,9 +105,9 @@
     {/if}
 
     <div class="actions">
-      <button type="button" class="glass-btn secondary" onclick={handleCancel}>Cancel</button>
+      <button type="button" class="glass-btn secondary" onclick={handleCancel}>{t('addDevice.cancel')}</button>
       <button type="submit" class="glass-btn primary" disabled={saving}>
-        {saving ? 'Adding...' : 'Add Device'}
+        {saving ? t('addDevice.adding') : t('addDevice.addBtn')}
       </button>
     </div>
   </form>
