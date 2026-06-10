@@ -11,6 +11,7 @@
     takeScreenshot,
     installApk,
     getDevices,
+    listen,
   } from './api';
   import { getErrorMessage } from './errors';
   import { open } from '@tauri-apps/plugin-dialog';
@@ -19,6 +20,13 @@
 
   let menuOpen = $state(false);
   let busy = $state(false);
+
+  $effect(() => {
+    const unlisten = listen<void>('window-shown', () => {
+      menuOpen = false;
+    });
+    return () => { unlisten.then(fn => fn()); };
+  });
 
   const address = $derived(`${device.ip_address}:${device.port}`);
 
