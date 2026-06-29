@@ -1,6 +1,6 @@
 {
   "productName": "ADB Bar",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "identifier": "com.adbbar.app",
   "build": {
     "beforeDevCommand": "npm run dev",
