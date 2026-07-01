@@ -40,6 +40,14 @@ fn notify(title: &str, message: &str) {
         .spawn();
 }
 
+#[cfg(target_os = "linux")]
+fn notify(title: &str, message: &str) {
+    let _ = std::process::Command::new("notify-send")
+        .arg(title)
+        .arg(message)
+        .spawn();
+}
+
 fn main() {
     adbbar_tauri::run_builder(tray_setup);
 }
@@ -157,16 +165,13 @@ fn tray_setup(app: &tauri::App) {
                                 .unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480))
                                 .width as f64
                                 / scale;
-                            #[cfg(target_os = "macos")]
-                            let x = tray_x;
-                            #[cfg(target_os = "windows")]
                             let x = tray_x;
                             #[cfg(target_os = "windows")]
                             let win_h = window.inner_size().unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480)).height as f64 / scale;
-                            #[cfg(target_os = "macos")]
-                            let y = tray_y + tray_height;
                             #[cfg(target_os = "windows")]
                             let y = tray_y - win_h;
+                            #[cfg(not(target_os = "windows"))]
+                            let y = tray_y + tray_height;
                             let _ = window.set_position(LogicalPosition::new(x, y));
                         }
                         let _ = window.show();
