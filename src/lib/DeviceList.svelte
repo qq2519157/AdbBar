@@ -296,6 +296,7 @@
     justify-content: center;
     gap: 6px;
     padding: 8px 12px;
+    white-space: nowrap;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
@@ -317,6 +318,7 @@
   }
 
   .glass-btn.danger {
+    flex: 0 0 auto;
     background: rgba(255, 80, 80, 0.08);
     border-color: rgba(255, 80, 80, 0.15);
     color: #ff8a8a;

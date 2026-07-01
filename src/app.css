@@ -60,6 +60,7 @@ html, body {
 /* === Button Reset === */
 button {
   font-family: inherit;
+  white-space: nowrap;
 }
 
 /* === Input Reset === */
