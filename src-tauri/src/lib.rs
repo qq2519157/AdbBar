@@ -4,6 +4,7 @@ pub mod locale;
 mod scanner;
 mod scrcpy;
 pub mod store;
+pub mod traymenu;
 
 use adb::AdbService;
 use scanner::{ScanProgress, ScanResult};
@@ -89,7 +90,14 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle, mut devices: Vec<AdbDevice>) {
     if let Some(tray) = app.tray_by_id("main-tray") {
         let connected = devices.iter().filter(|d| d.status == "connected").count();
         let _ = tray.set_tooltip(Some(locale::tray_tooltip(connected)));
-        let _ = tray.set_menu(Some(menu));
+        if traymenu::detached() {
+            // macOS 27: attaching the menu to the status item makes AppKit
+            // swallow the clicks; keep it for manual presentation instead.
+            let state = app.state::<AppState>();
+            *state.tray_menu.lock().unwrap() = Some(menu);
+        } else {
+            let _ = tray.set_menu(Some(menu));
+        }
     }
 }
 
@@ -97,6 +105,9 @@ pub struct AppState {
     pub adb: Arc<AdbService>,
     pub store: Arc<StoreManager>,
     pub scrcpy: Arc<ScrcpyService>,
+    /// Tray menu held aside on macOS 27, where the status item must not own it
+    /// (see [`traymenu`]); presented manually on right-click.
+    pub tray_menu: std::sync::Mutex<Option<Menu<tauri::Wry>>>,
 }
 
 #[tauri::command]
@@ -657,6 +668,7 @@ where
                 adb: Arc::new(adb_service),
                 store: Arc::new(store_manager),
                 scrcpy: Arc::new(scrcpy_service),
+                tray_menu: std::sync::Mutex::new(None),
             });
 
             // Call the caller's setup (tray icon creation, etc.)

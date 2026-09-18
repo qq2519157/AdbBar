@@ -59,12 +59,22 @@ fn tray_setup(app: &tauri::App) {
     let menu = adbbar_tauri::build_tray_menu(app, &devices);
     let tray_icon = tray_icon_image();
 
-    let _tray = TrayIconBuilder::with_id("main-tray")
+    // On macOS 27 a status item that owns an NSMenu never forwards clicks to
+    // its view, so the menu has to stay off it and we present it ourselves on
+    // right-click (see `traymenu`).
+    let detached = adbbar_tauri::traymenu::detached();
+
+    let mut builder = TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon)
         .icon_as_template(true)
-        .tooltip("ADB Bar")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
+        .tooltip("ADB Bar");
+    if detached {
+        *state.tray_menu.lock().unwrap() = Some(menu);
+    } else {
+        builder = builder.menu(&menu).show_menu_on_left_click(false);
+    }
+
+    let _tray = builder
         .on_menu_event(|tray, event| {
             let app = tray.app_handle();
             let id = event.id.as_ref().to_string();
@@ -159,48 +169,64 @@ fn tray_setup(app: &tauri::App) {
                 _ => {}
             }
         })
-        .on_tray_icon_event(|tray, event| {
+        .on_tray_icon_event(move |tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
+                button,
+                button_state,
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        if let Ok(Some(rect)) = tray.rect() {
-                            use tauri::{LogicalPosition, Position, Size};
-                            let scale = window.scale_factor().unwrap_or(1.0);
-                            let (tray_x, tray_y) = match rect.position {
-                                Position::Physical(p) => (p.x as f64 / scale, p.y as f64 / scale),
-                                Position::Logical(p) => (p.x, p.y),
-                            };
-                            let tray_height = match rect.size {
-                                Size::Physical(s) => s.height as f64 / scale,
-                                Size::Logical(s) => s.height,
-                            };
-                            let _win_w = window
-                                .inner_size()
-                                .unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480))
-                                .width as f64
-                                / scale;
-                            let x = tray_x;
-                            #[cfg(target_os = "windows")]
-                            let win_h = window.inner_size().unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480)).height as f64 / scale;
-                            #[cfg(target_os = "windows")]
-                            let y = tray_y - win_h;
-                            #[cfg(not(target_os = "windows"))]
-                            let y = tray_y + tray_height;
-                            let _ = window.set_position(LogicalPosition::new(x, y));
+                match (button, button_state) {
+                    (MouseButton::Left, MouseButtonState::Up) => {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                if let Ok(Some(rect)) = tray.rect() {
+                                    use tauri::{LogicalPosition, Position, Size};
+                                    let scale = window.scale_factor().unwrap_or(1.0);
+                                    let (tray_x, tray_y) = match rect.position {
+                                        Position::Physical(p) => (p.x as f64 / scale, p.y as f64 / scale),
+                                        Position::Logical(p) => (p.x, p.y),
+                                    };
+                                    let tray_height = match rect.size {
+                                        Size::Physical(s) => s.height as f64 / scale,
+                                        Size::Logical(s) => s.height,
+                                    };
+                                    let _win_w = window
+                                        .inner_size()
+                                        .unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480))
+                                        .width as f64
+                                        / scale;
+                                    let x = tray_x;
+                                    #[cfg(target_os = "windows")]
+                                    let win_h = window.inner_size().unwrap_or_else(|_| tauri::PhysicalSize::new(320, 480)).height as f64 / scale;
+                                    #[cfg(target_os = "windows")]
+                                    let y = tray_y - win_h;
+                                    #[cfg(not(target_os = "windows"))]
+                                    let y = tray_y + tray_height;
+                                    let _ = window.set_position(LogicalPosition::new(x, y));
+                                }
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                adbbar_tauri::mark_just_shown();
+                                let _ = app.emit("window-shown", ());
+                            }
                         }
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        adbbar_tauri::mark_just_shown();
-                        let _ = app.emit("window-shown", ());
                     }
+                    // Only ours to handle while the status item has no menu of
+                    // its own; otherwise AppKit is already showing one.
+                    (MouseButton::Right, MouseButtonState::Down) if detached => {
+                        let app = tray.app_handle();
+                        let menu = app.state::<AppState>().tray_menu.lock().unwrap().clone();
+                        if let Some(menu) = menu {
+                            if let Some(window) = app.get_webview_window("main") {
+                                adbbar_tauri::traymenu::present(window.as_ref().window(), &menu);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         })
