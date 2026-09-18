@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen as tauriListen } from '@tauri-apps/api/event';
-import type { AdbDevice, ScanResult, ScrcpyStatus } from './types';
+import type {
+  AdbDevice,
+  MdnsService,
+  ScanResult,
+  ScrcpyStatus,
+} from './types';
 
 export async function getDevices(): Promise<AdbDevice[]> {
   return invoke<AdbDevice[]>('get_devices');
@@ -10,8 +15,16 @@ export async function connectDevice(address: string): Promise<string> {
   return invoke<string>('connect_device', { address });
 }
 
+export async function pairDevice(address: string, code: string): Promise<string | null> {
+  return invoke<string | null>('pair_device', { address, code });
+}
+
 export async function disconnectDevice(address: string): Promise<string> {
   return invoke<string>('disconnect_device', { address });
+}
+
+export async function disconnectAll(): Promise<AdbDevice[]> {
+  return invoke<AdbDevice[]>('disconnect_all');
 }
 
 export async function refreshAll(reconnect = false): Promise<AdbDevice[]> {
@@ -22,6 +35,10 @@ export async function scanNetwork(port: number = 5555): Promise<ScanResult[]> {
   return invoke<ScanResult[]>('scan_network', { port });
 }
 
+export async function getMdnsServices(): Promise<MdnsService[]> {
+  return invoke<MdnsService[]>('mdns_services');
+}
+
 export async function addDevice(name: string, ipAddress: string, port: number): Promise<void> {
   return invoke<void>('add_device', { name, ipAddress, port });
 }
@@ -30,8 +47,20 @@ export async function removeDevice(id: string): Promise<void> {
   return invoke<void>('remove_device', { id });
 }
 
+export async function renameDevice(id: string, name: string): Promise<void> {
+  return invoke<void>('rename_device', { id, name });
+}
+
 export async function clearDevices(): Promise<void> {
   return invoke<void>('clear_devices');
+}
+
+export async function exportDevices(path: string): Promise<void> {
+  return invoke<void>('export_devices', { path });
+}
+
+export async function importDevices(path: string): Promise<number> {
+  return invoke<number>('import_devices', { path });
 }
 
 export async function openShell(address: string): Promise<void> {
@@ -42,8 +71,44 @@ export async function launchScrcpy(address: string): Promise<void> {
   return invoke<void>('launch_scrcpy', { address });
 }
 
+export async function setScrcpyOptions(
+  bitrateMbps: number | null,
+  turnScreenOff: boolean,
+  maxSize: number | null,
+  stayAwake: boolean
+): Promise<void> {
+  return invoke<void>('set_scrcpy_options', {
+    bitrateMbps,
+    turnScreenOff,
+    maxSize,
+    stayAwake,
+  });
+}
+
+export async function getScrcpyOptions(): Promise<
+  [number | null, boolean, number | null, boolean]
+> {
+  return invoke<[number | null, boolean, number | null, boolean]>('get_scrcpy_options');
+}
+
+export async function getScanPort(): Promise<number | null> {
+  return invoke<number | null>('get_scan_port');
+}
+
+export async function setScanPort(port: number): Promise<void> {
+  return invoke<void>('set_scan_port', { port });
+}
+
+export async function setDevicePinned(id: string, pinned: boolean): Promise<void> {
+  return invoke<void>('set_device_pinned', { id, pinned });
+}
+
 export async function takeScreenshot(address: string): Promise<string> {
   return invoke<string>('take_screenshot', { address });
+}
+
+export async function getDeviceProps(address: string): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>('get_device_props', { address });
 }
 
 export async function installApk(address: string, apkPath: string): Promise<string> {
@@ -60,6 +125,14 @@ export async function detectAdbPath(): Promise<string> {
 
 export async function setAdbPath(path: string): Promise<void> {
   return invoke<void>('set_adb_path', { path });
+}
+
+export async function installAdb(): Promise<string> {
+  return invoke<string>('install_adb');
+}
+
+export async function checkAdbPath(path: string): Promise<void> {
+  return invoke<void>('check_adb_path', { path });
 }
 
 export async function detectScrcpyStatus(): Promise<ScrcpyStatus> {

@@ -21,6 +21,16 @@ pub struct ScrcpyStatus {
     pub version: Option<String>,
 }
 
+/// Launch options read from the persistent store; all fields optional so the
+/// scrcpy defaults apply when unset.
+#[derive(serde::Deserialize, Clone, Copy, Debug, Default)]
+pub struct ScrcpyLaunchOptions {
+    pub bitrate_mbps: Option<u32>,
+    pub turn_screen_off: bool,
+    pub max_size: Option<u32>,
+    pub stay_awake: bool,
+}
+
 pub struct ScrcpyService {
     pub path: Mutex<Option<String>>,
 }
@@ -225,18 +235,11 @@ impl ScrcpyService {
         emit("Downloading scrcpy for Windows...".to_string());
 
         // Get latest release URL
-        let client = reqwest::Client::new();
-        let response = client
-            .get("https://api.github.com/repos/Genymobile/scrcpy/releases/latest")
-            .header("User-Agent", "ADBBar")
-            .send()
-            .await
-            .map_err(|e| format!("Failed to check latest release: {}", e))?;
-
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read release info: {}", e))?;
+        let body = crate::download::fetch_text(
+            "https://api.github.com/repos/Genymobile/scrcpy/releases/latest",
+            std::time::Duration::from_secs(30),
+        )
+        .await?;
         let release: serde_json::Value = serde_json::from_str(&body)
             .map_err(|e| format!("Failed to parse release info: {}", e))?;
 
@@ -257,17 +260,11 @@ impl ScrcpyService {
 
         emit(format!("Downloading from {}...", download_url));
 
-        let zip_response = client
-            .get(download_url)
-            .header("User-Agent", "ADBBar")
-            .send()
-            .await
-            .map_err(|e| format!("Failed to download: {}", e))?;
-
-        let zip_bytes = zip_response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read download: {}", e))?;
+        let zip_bytes = crate::download::download_with_progress(download_url, {
+            let emit = emit.clone();
+            move |msg: String| emit(msg)
+        })
+        .await?;
 
         let data_dir = dirs::data_dir().ok_or("Cannot determine app data directory")?;
         let install_dir = data_dir.join("adbbar").join("scrcpy");
@@ -278,25 +275,13 @@ impl ScrcpyService {
 
         emit("Extracting...".to_string());
 
-        // Extract zip using PowerShell as fallback (avoids needing the zip crate)
-        let extract_status = std::process::Command::new("powershell")
-            .args(&[
-                "-Command",
-                &format!(
-                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                    zip_path.to_string_lossy(),
-                    install_dir.to_string_lossy()
-                ),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to extract zip: {}", e))?;
-
-        if !extract_status.status.success() {
-            return Err(format!(
-                "Failed to extract zip: {}",
-                String::from_utf8_lossy(&extract_status.stderr)
-            ));
-        }
+        // Extract zip using PowerShell (avoids needing the zip crate); runs hidden
+        // (CREATE_NO_WINDOW) with PS-quoted paths.
+        let zip = zip_path.clone();
+        let dir = install_dir.clone();
+        tokio::task::spawn_blocking(move || crate::download::extract_zip(&zip, &dir))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))??;
 
         // Clean up zip
         let _ = std::fs::remove_file(&zip_path);
@@ -329,7 +314,11 @@ impl ScrcpyService {
         None
     }
 
-    pub async fn launch(&self, address: &str) -> Result<(), String> {
+    pub async fn launch(
+        &self,
+        address: &str,
+        options: ScrcpyLaunchOptions,
+    ) -> Result<(), String> {
         let scrcpy_path = {
             let guard = self.path.lock().await;
             guard.clone()
@@ -339,9 +328,23 @@ impl ScrcpyService {
 
         let addr = address.to_string();
         tokio::task::spawn_blocking(move || {
-            new_command(&scrcpy_path)
-                .args(["-s", &addr])
-                .spawn()
+            let mut cmd = new_command(&scrcpy_path);
+            cmd.arg("-s").arg(&addr);
+            if let Some(mbps) = options.bitrate_mbps {
+                cmd.arg("--video-bit-rate").arg(format!("{}M", mbps));
+            }
+            if let Some(size) = options.max_size {
+                // Limit both dimensions to this value (long side).
+                cmd.arg("--max-size").arg(size.to_string());
+            }
+            if options.turn_screen_off {
+                // Keep mirroring with the device screen off.
+                cmd.arg("-S");
+            }
+            if options.stay_awake {
+                cmd.arg("--stay-awake");
+            }
+            cmd.spawn()
                 .map_err(|e| format!("Failed to launch scrcpy: {}", e))?;
 
             Ok(())

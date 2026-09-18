@@ -6,20 +6,26 @@
     connectDevice,
     disconnectDevice,
     removeDevice,
+    renameDevice,
+    setDevicePinned,
     openShell,
     launchScrcpy,
     takeScreenshot,
     installApk,
     getDevices,
+    getDeviceProps,
     listen,
   } from './api';
   import { getErrorMessage } from './errors';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { open as openPath } from '@tauri-apps/plugin-shell';
 
   let { device }: { device: AdbDevice } = $props();
 
   let menuOpen = $state(false);
   let busy = $state(false);
+  let editing = $state(false);
+  let nameInput = $state('');
 
   $effect(() => {
     const unlisten = listen<void>('window-shown', () => {
@@ -56,10 +62,34 @@
       const msg = await connectDevice(address);
       store.showStatus(msg || t('deviceRow.connected'));
       store.devices = await getDevices();
+      await maybeRenameToDeviceModel();
     } catch (e) {
       store.showStatus(getErrorMessage(e, t('deviceRow.connectionFailed')));
     } finally {
       busy = false;
+    }
+  }
+
+  // Give freshly connected devices a real name — only while still on the default
+  // "Device (ip)" name, never overwriting user-provided names.
+  async function maybeRenameToDeviceModel() {
+    if (!device.name.startsWith('Device (')) {
+      return;
+    }
+    try {
+      const props = await getDeviceProps(address);
+      const model = props?.['ro.product.model']?.trim();
+      // Re-check under the current list: the user may have renamed meanwhile.
+      const fresh = store.devices.find((d) => d.id === device.id);
+      if (!model || !fresh || !fresh.name.startsWith('Device (')) {
+        return;
+      }
+      if (model !== fresh.name) {
+        await renameDevice(device.id, model);
+        store.devices = await getDevices();
+      }
+    } catch {
+      // Non-fatal: keep the default name.
     }
   }
 
@@ -88,6 +118,56 @@
     }
   }
 
+  async function handleRename() {
+    menuOpen = false;
+    nameInput = device.name;
+    editing = true;
+  }
+
+  function cancelRename() {
+    editing = false;
+  }
+
+  function handleRenameKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      submitRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelRename();
+    }
+  }
+
+  async function submitRename() {
+    const name = nameInput.trim();
+    if (!name) {
+      store.showStatus(t('addDevice.nameRequired'));
+      return;
+    }
+    if (name === device.name) {
+      editing = false;
+      return;
+    }
+    busy = true;
+    try {
+      await renameDevice(device.id, name);
+      store.devices = await getDevices();
+      editing = false;
+      store.showStatus(t('deviceRow.renamed'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('deviceRow.renameFailed')));
+    } finally {
+      busy = false;
+    }
+  }
+
+  function focusNameInput(el: HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
+
   async function handleShell() {
     menuOpen = false;
     try {
@@ -114,6 +194,10 @@
     try {
       const path = await takeScreenshot(address);
       store.showStatus(path ? t('deviceRow.screenshotSaved', { path }) : t('deviceRow.screenshotTaken'));
+      if (path) {
+        // Open the capture in the system viewer right away.
+        openPath(path).catch(() => {});
+      }
     } catch (e) {
       store.showStatus(getErrorMessage(e, t('deviceRow.screenshotFailed')));
     } finally {
@@ -141,6 +225,23 @@
     }
   }
 
+  async function handleTogglePin() {
+    menuOpen = false;
+    try {
+      await setDevicePinned(device.id, !device.pinned);
+      store.devices = await getDevices();
+      store.showStatus(t(device.pinned ? 'deviceRow.unpinned' : 'deviceRow.pinned'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('deviceRow.pinFailed')));
+    }
+  }
+
+  function handleDetail() {
+    menuOpen = false;
+    store.selectedDeviceId = device.id;
+    store.navigate('deviceDetail');
+  }
+
   function toggleMenu() {
     menuOpen = !menuOpen;
   }
@@ -154,11 +255,31 @@
 <div class="device-row-wrapper" tabindex="-1" onblur={closeMenu}>
   <div class="device-row">
     <div class="device-info">
-      <div class="status-dot" style="background: {statusColor};"></div>
-      <div class="device-text">
-        <span class="device-name">{device.name}</span>
-        <span class="device-ip">{address}</span>
-      </div>
+      {#if editing}
+        <div class="status-dot" style="background: {statusColor};"></div>
+        <div class="rename-row">
+          <input
+            class="rename-input"
+            type="text"
+            bind:value={nameInput}
+            maxlength="50"
+            use:focusNameInput
+            onkeydown={handleRenameKeydown}
+          />
+          <button class="connect-btn" onclick={submitRename} disabled={busy}>
+            {t('deviceRow.save')}
+          </button>
+          <button class="menu-btn" onclick={cancelRename} title={t('deviceRow.cancel')}>
+            &#10005;
+          </button>
+        </div>
+      {:else}
+        <div class="status-dot" style="background: {statusColor};"></div>
+        <div class="device-text">
+          <span class="device-name">{device.name}</span>
+          <span class="device-ip">{address}</span>
+        </div>
+      {/if}
     </div>
 
     <div class="device-actions">
@@ -189,6 +310,14 @@
   {#if menuOpen}
     <div class="action-menu">
       {#if device.status === 'connected'}
+        <button class="menu-item" onclick={handleDetail}>
+          <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          {t('deviceRow.details')}
+        </button>
         <button class="menu-item" onclick={handleShell}>
           <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="4 17 10 11 4 5" />
@@ -221,6 +350,22 @@
         </button>
         <div class="menu-divider"></div>
       {/if}
+      <button class="menu-item" onclick={handleTogglePin}>
+        <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 17v5" />
+          <path
+            d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+          />
+        </svg>
+        {device.pinned ? t('deviceRow.unpin') : t('deviceRow.pin')}
+      </button>
+      <button class="menu-item" onclick={handleRename}>
+        <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+        {t('deviceRow.rename')}
+      </button>
       <button class="menu-item danger" onclick={handleDelete}>
         <svg class="mi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6" />
@@ -271,6 +416,26 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+  }
+
+  .rename-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #e8e8e8;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(100, 180, 255, 0.4);
+    border-radius: 6px;
+    outline: none;
   }
 
   .device-name {

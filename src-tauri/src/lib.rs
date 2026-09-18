@@ -1,4 +1,5 @@
 pub mod adb;
+mod download;
 pub mod locale;
 mod scanner;
 mod scrcpy;
@@ -29,6 +30,14 @@ pub fn build_tray_menu(
     let enable_tcpip =
         MenuItem::with_id(app, "enable-tcpip", locale::tray_text("enable_tcpip"), true, None::<&str>)
             .unwrap();
+    let disconnect_all = MenuItem::with_id(
+        app,
+        "disconnect-all",
+        locale::tray_text("disconnect_all"),
+        true,
+        None::<&str>,
+    )
+    .unwrap();
     let quit = MenuItem::with_id(app, "quit", locale::tray_text("quit"), true, None::<&str>).unwrap();
 
     let connect_submenu = if devices.is_empty() {
@@ -65,6 +74,7 @@ pub fn build_tray_menu(
             &sep,
             &restart_adb,
             &enable_tcpip,
+            &disconnect_all,
             &sep,
             &quit,
         ],
@@ -72,9 +82,13 @@ pub fn build_tray_menu(
     .unwrap()
 }
 
-pub fn rebuild_tray_menu(app: &tauri::AppHandle, devices: Vec<AdbDevice>) {
+pub fn rebuild_tray_menu(app: &tauri::AppHandle, mut devices: Vec<AdbDevice>) {
+    // Pinned devices first, keeping storage order otherwise (stable sort).
+    devices.sort_by_key(|d| !d.pinned);
     let menu = build_tray_menu(app, &devices);
     if let Some(tray) = app.tray_by_id("main-tray") {
+        let connected = devices.iter().filter(|d| d.status == "connected").count();
+        let _ = tray.set_tooltip(Some(locale::tray_tooltip(connected)));
         let _ = tray.set_menu(Some(menu));
     }
 }
@@ -111,6 +125,43 @@ async fn connect_device(
 }
 
 #[tauri::command]
+async fn pair_device(
+    state: tauri::State<'_, AppState>,
+    address: String,
+    code: String,
+) -> Result<Option<String>, String> {
+    let address = address.trim().to_string();
+    let code = code.trim().to_string();
+    if address.is_empty() {
+        return Err("Pairing address cannot be empty".to_string());
+    }
+    if code.is_empty() {
+        return Err("Pairing code cannot be empty".to_string());
+    }
+    state.adb.pair(&address, &code).await?;
+
+    // The phone starts advertising a connect service right after pairing, but
+    // registration can lag a couple of seconds — poll mDNS briefly for it and
+    // return the connect address so the UI can add the device in one step.
+    let ip_prefix = format!("{}:", address.split(':').next().unwrap_or_default());
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        }
+        if let Ok(output) = state.adb.run(&["mdns", "services"], 5).await {
+            let services = adb::parse_mdns_services(&output);
+            if let Some(connect) = services
+                .iter()
+                .find(|s| s.kind == "connect" && s.address.starts_with(&ip_prefix))
+            {
+                return Ok(Some(connect.address.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
 async fn disconnect_device(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -122,6 +173,38 @@ async fn disconnect_device(
     Ok(result)
 }
 
+/// Disconnect every stored device concurrently, then refresh statuses.
+/// Shared by the `disconnect_all` command and the tray menu entry.
+pub async fn disconnect_all_devices(
+    adb: Arc<AdbService>,
+    store: Arc<StoreManager>,
+) -> Result<Vec<AdbDevice>, String> {
+    let addresses = {
+        let guard = store.store.lock().await;
+        guard.devices.iter().map(|d| d.address()).collect::<Vec<_>>()
+    };
+    let mut joins = tokio::task::JoinSet::new();
+    for addr in addresses {
+        let adb = adb.clone();
+        joins.spawn(async move {
+            let _ = adb.disconnect(&addr).await;
+        });
+    }
+    while joins.join_next().await.is_some() {}
+    AdbService::refresh_statuses(adb, store).await
+}
+
+#[tauri::command]
+async fn disconnect_all(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<AdbDevice>, String> {
+    let result =
+        disconnect_all_devices(state.adb.clone(), state.store.clone()).await;
+    update_tray_menu(&app, &state).await;
+    result
+}
+
 #[tauri::command]
 async fn refresh_all(
     app: tauri::AppHandle,
@@ -129,12 +212,20 @@ async fn refresh_all(
     reconnect: Option<bool>,
 ) -> Result<Vec<AdbDevice>, String> {
     if reconnect.unwrap_or(false) {
-        let guard = state.store.store.lock().await;
-        let addresses: Vec<String> = guard.devices.iter().map(|d| d.address()).collect();
-        drop(guard);
-        for addr in &addresses {
-            let _ = state.adb.connect(addr).await;
+        let addresses = {
+            let guard = state.store.store.lock().await;
+            guard.devices.iter().map(|d| d.address()).collect::<Vec<_>>()
+        };
+        // Connect concurrently: unreachable hosts would otherwise serialize their
+        // 10s timeouts and stall a refresh with several saved devices.
+        let mut joins = tokio::task::JoinSet::new();
+        for addr in addresses {
+            let adb = state.adb.clone();
+            joins.spawn(async move {
+                let _ = adb.connect(&addr).await;
+            });
         }
+        while joins.join_next().await.is_some() {}
     }
     let result = adb::AdbService::refresh_statuses(state.adb.clone(), state.store.clone()).await;
     update_tray_menu(&app, &state).await;
@@ -153,6 +244,14 @@ async fn scan_network(app: tauri::AppHandle, port: u16) -> Result<Vec<ScanResult
 }
 
 #[tauri::command]
+async fn mdns_services(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<adb::MdnsService>, String> {
+    let output = state.adb.run(&["mdns", "services"], 5).await?;
+    Ok(adb::parse_mdns_services(&output))
+}
+
+#[tauri::command]
 async fn add_device(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -166,6 +265,7 @@ async fn add_device(
         ip_address,
         port,
         status: "disconnected".to_string(),
+        pinned: false,
     };
     let cloned = device.clone();
     state.store.add(device).await?;
@@ -185,6 +285,18 @@ async fn remove_device(
 }
 
 #[tauri::command]
+async fn rename_device(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    state.store.rename(&id, &name).await?;
+    update_tray_menu(&app, &state).await;
+    Ok(())
+}
+
+#[tauri::command]
 async fn clear_devices(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -192,6 +304,54 @@ async fn clear_devices(
     state.store.clear().await?;
     update_tray_menu(&app, &state).await;
     Ok(())
+}
+
+#[tauri::command]
+async fn export_devices(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    let snapshot = {
+        let guard = state.store.store.lock().await;
+        let mut snapshot = guard.clone();
+        // Keep the export portable: strip machine-local settings and runtime statuses.
+        snapshot.adb_path = None;
+        snapshot.locale = None;
+        for device in &mut snapshot.devices {
+            device.status = "disconnected".to_string();
+        }
+        snapshot
+    };
+    let content = serde_json::to_string_pretty(&snapshot)
+        .map_err(|e| format!("Failed to serialize devices: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[tauri::command]
+async fn import_devices(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<usize, String> {
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let imported: store::Store =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse file: {}", e))?;
+    let mut added = 0usize;
+    {
+        let mut guard = state.store.store.lock().await;
+        for mut device in imported.devices {
+            if guard.devices.iter().any(|d| d.address() == device.address()) {
+                continue;
+            }
+            device.status = "disconnected".to_string();
+            guard.devices.push(device);
+            added += 1;
+        }
+    }
+    state.store.save().await?;
+    update_tray_menu(&app, &state).await;
+    Ok(added)
 }
 
 #[tauri::command]
@@ -212,7 +372,84 @@ async fn launch_scrcpy(state: tauri::State<'_, AppState>, address: String) -> Re
             }
         }
     }
-    state.scrcpy.launch(&address).await
+    let options = {
+        let guard = state.store.store.lock().await;
+        scrcpy::ScrcpyLaunchOptions {
+            bitrate_mbps: guard.scrcpy_bitrate_mbps,
+            turn_screen_off: guard.scrcpy_turn_screen_off,
+            max_size: guard.scrcpy_max_size,
+            stay_awake: guard.scrcpy_stay_awake,
+        }
+    };
+    state.scrcpy.launch(&address, options).await
+}
+
+#[tauri::command]
+async fn set_scrcpy_options(
+    state: tauri::State<'_, AppState>,
+    bitrate_mbps: Option<u32>,
+    turn_screen_off: bool,
+    max_size: Option<u32>,
+    stay_awake: bool,
+) -> Result<(), String> {
+    if let Some(mbps) = bitrate_mbps {
+        if !(1..=1000).contains(&mbps) {
+            return Err("Bitrate must be 1-1000 Mbps".to_string());
+        }
+    }
+    if let Some(size) = max_size {
+        if !(100..=8192).contains(&size) {
+            return Err("Max size must be 100-8192 px".to_string());
+        }
+    }
+    {
+        let mut guard = state.store.store.lock().await;
+        guard.scrcpy_bitrate_mbps = bitrate_mbps;
+        guard.scrcpy_turn_screen_off = turn_screen_off;
+        guard.scrcpy_max_size = max_size;
+        guard.scrcpy_stay_awake = stay_awake;
+    }
+    state.store.save().await
+}
+
+#[tauri::command]
+async fn get_scrcpy_options(
+    state: tauri::State<'_, AppState>,
+) -> Result<(Option<u32>, bool, Option<u32>, bool), String> {
+    let guard = state.store.store.lock().await;
+    Ok((
+        guard.scrcpy_bitrate_mbps,
+        guard.scrcpy_turn_screen_off,
+        guard.scrcpy_max_size,
+        guard.scrcpy_stay_awake,
+    ))
+}
+
+#[tauri::command]
+async fn get_scan_port(state: tauri::State<'_, AppState>) -> Result<Option<u16>, String> {
+    let guard = state.store.store.lock().await;
+    Ok(guard.scan_port)
+}
+
+#[tauri::command]
+async fn set_scan_port(state: tauri::State<'_, AppState>, port: u16) -> Result<(), String> {
+    if !(1..=65535).contains(&port) {
+        return Err("Port must be 1-65535".to_string());
+    }
+    {
+        let mut guard = state.store.store.lock().await;
+        guard.scan_port = Some(port);
+    }
+    state.store.save().await
+}
+
+#[tauri::command]
+async fn set_device_pinned(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> Result<(), String> {
+    state.store.set_pinned(&id, pinned).await
 }
 
 #[tauri::command]
@@ -221,6 +458,15 @@ async fn take_screenshot(
     address: String,
 ) -> Result<String, String> {
     state.adb.take_screenshot(&address).await
+}
+
+#[tauri::command]
+async fn get_device_props(
+    state: tauri::State<'_, AppState>,
+    address: String,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let output = state.adb.run(&["-s", &address, "shell", "getprop"], 10).await?;
+    Ok(adb::parse_getprop_output(&output))
 }
 
 #[tauri::command]
@@ -259,6 +505,34 @@ async fn set_adb_path(state: tauri::State<'_, AppState>, path: String) -> Result
     state.store.save().await?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn install_adb(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let app_handle = app.clone();
+    let path = state
+        .adb
+        .install(move |msg: String| {
+            let _ = app_handle.emit("adb-install-progress", &msg);
+        })
+        .await?;
+
+    // Persist the installed path in the store (mirrors set_adb_path)
+    {
+        let mut guard = state.store.store.lock().await;
+        guard.adb_path = Some(path.clone());
+    }
+    state.store.save().await?;
+
+    Ok(path)
+}
+
+#[tauri::command]
+async fn check_adb_path(path: String) -> Result<(), String> {
+    AdbService::validate_adb_path(path.trim()).await
 }
 
 #[tauri::command]
@@ -393,19 +667,33 @@ where
         .invoke_handler(tauri::generate_handler![
             get_devices,
             connect_device,
+            pair_device,
             disconnect_device,
+            disconnect_all,
             refresh_all,
             scan_network,
+            mdns_services,
+            get_scan_port,
+            set_scan_port,
             add_device,
             remove_device,
+            rename_device,
             clear_devices,
+            export_devices,
+            import_devices,
             open_shell,
             launch_scrcpy,
+            set_scrcpy_options,
+            get_scrcpy_options,
+            set_device_pinned,
             take_screenshot,
+            get_device_props,
             install_apk,
             get_adb_path,
             detect_adb_path,
             set_adb_path,
+            install_adb,
+            check_adb_path,
             detect_scrcpy_status,
             set_scrcpy_path,
             install_scrcpy,

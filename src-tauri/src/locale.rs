@@ -46,6 +46,7 @@ pub fn tray_text(key: &str) -> String {
             "no_devices" => "(无设备)".to_string(),
             "restart_adb" => "重启 ADB 服务".to_string(),
             "enable_tcpip" => "启用 TCP/IP (5555)".to_string(),
+            "disconnect_all" => "断开全部设备".to_string(),
             "quit" => "退出".to_string(),
             _ => key.to_string(),
         }
@@ -55,9 +56,18 @@ pub fn tray_text(key: &str) -> String {
             "no_devices" => "(No devices)".to_string(),
             "restart_adb" => "Restart ADB Server".to_string(),
             "enable_tcpip" => "Enable TCP/IP (5555)".to_string(),
+            "disconnect_all" => "Disconnect All".to_string(),
             "quit" => "Quit".to_string(),
             _ => key.to_string(),
         }
+    }
+}
+
+pub fn tray_tooltip(connected: usize) -> String {
+    if current_locale() == "zh" {
+        format!("ADB Bar · 已连接 {} 台设备", connected)
+    } else {
+        format!("ADB Bar · {} device(s) connected", connected)
     }
 }
 
@@ -70,6 +80,7 @@ pub fn notify_text(key: &str) -> String {
             "tcpip_failed" => "启用 TCP/IP 失败".to_string(),
             "connect_success" => "连接成功".to_string(),
             "connect_failed" => "连接失败".to_string(),
+            "disconnect_all_done" => "已断开全部设备".to_string(),
             _ => key.to_string(),
         }
     } else {
@@ -80,6 +91,7 @@ pub fn notify_text(key: &str) -> String {
             "tcpip_failed" => "Failed to enable TCP/IP".to_string(),
             "connect_success" => "Connected".to_string(),
             "connect_failed" => "Connection failed".to_string(),
+            "disconnect_all_done" => "All devices disconnected".to_string(),
             _ => key.to_string(),
         }
     }

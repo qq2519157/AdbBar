@@ -18,3 +18,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# AI nightly maintenance log
+AI_NIGHTLY_LOG.md
+AI_FEATURE_TASK_LOG.md

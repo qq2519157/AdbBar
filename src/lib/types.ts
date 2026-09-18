@@ -4,6 +4,7 @@ export interface AdbDevice {
   ip_address: string;
   port: number;
   status: 'disconnected' | 'connecting' | 'connected' | 'unauthorized' | 'offline';
+  pinned: boolean;
 }
 
 export interface ScanResult {
@@ -30,4 +31,11 @@ export interface ScrcpyStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
+}
+
+export interface MdnsService {
+  name: string;
+  kind: 'connect' | 'pairing';
+  service_type: string;
+  address: string;
 }

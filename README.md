@@ -11,13 +11,20 @@ A cross-platform system tray app for managing ADB devices. Built with Tauri (Rus
 ## Features
 
 - System tray icon with popup window
-- Connect/disconnect ADB devices with one click
+- Connect/disconnect ADB devices with one click (tray quick-connect included)
 - Auto-scan local network for ADB devices (port 5555)
+- mDNS discovery of Android devices on the LAN (`adb mdns services`)
+- Android 11+ wireless pairing (`adb pair`) with automatic device setup after pairing
 - Manual device addition
-- Quick actions: Shell, Scrcpy mirror, Screenshot, Install APK
-- Configurable ADB path with auto-detection
-- Scrcpy auto-detection and one-click installation
-- ADB quick tools: restart ADB server, enable TCP/IP mode
+- Quick actions: Shell, Scrcpy mirror, Screenshot (auto-opens), Install APK
+- Device details panel (model, Android version, all system properties)
+- Rename and pin devices; auto-name devices with their real model
+- One-click ADB installation (official platform-tools download)
+- Configurable ADB path with auto-detection (ANDROID_HOME, Homebrew, Chocolatey, Scoop)
+- Scrcpy auto-detection, one-click installation, and launch options (bitrate, screen off)
+- ADB quick tools: restart ADB server, enable TCP/IP mode, disconnect all
+- Auto-reconnect saved devices on startup; parallel reconnects
+- Device list import/export (JSON backup)
 - Smart refresh: reconnects dropped connections on manual refresh
 - Device list persistence across restarts
 - Bilingual UI: English & Chinese (auto-detect system language)
@@ -27,6 +34,7 @@ A cross-platform system tray app for managing ADB devices. Built with Tauri (Rus
 
 - macOS (Apple Silicon / Intel)
 - Windows
+- Linux
 
 ## Prerequisites
 
@@ -62,13 +70,20 @@ npx tauri build
 ## 功能
 
 - 系统托盘图标，点击弹出窗口
-- 一键连接/断开 ADB 设备
+- 一键连接/断开 ADB 设备（含托盘快速连接）
 - 自动扫描局域网中的 ADB 设备（端口 5555）
+- mDNS 局域网设备发现（`adb mdns services`）
+- Android 11+ 无线配对（`adb pair`），配对后自动完成设备添加
 - 手动添加设备
-- 快捷操作：Shell 终端、Scrcpy 投屏、截屏、安装 APK
-- 可配置 ADB 路径，支持自动检测
-- Scrcpy 自动检测与一键安装（macOS: Homebrew，Windows: 自动下载）
-- ADB 快捷工具：重启 ADB 服务、一键开启 TCP/IP 模式
+- 快捷操作：Shell 终端、Scrcpy 投屏、截屏（自动打开）、安装 APK
+- 设备详情面板（型号、系统版本、全部系统属性）
+- 设备重命名与置顶；连接后自动以真实型号命名
+- ADB 一键安装（官方 platform-tools 下载）
+- 可配置 ADB 路径，支持自动检测（ANDROID_HOME、Homebrew、Chocolatey、Scoop）
+- Scrcpy 自动检测、一键安装与启动选项（码率、镜像时关屏）
+- ADB 快捷工具：重启 ADB 服务、一键开启 TCP/IP 模式、断开全部
+- 启动时自动重连已保存设备；并行重连
+- 设备列表导入/导出（JSON 备份）
 - 智能刷新：手动刷新时自动重连已断开的设备
 - 设备列表持久化，重启后保留
 - 中英双语界面（自动检测系统语言）
@@ -78,6 +93,7 @@ npx tauri build
 
 - macOS (Apple Silicon / Intel)
 - Windows
+- Linux
 
 ## 环境要求
 

@@ -4,18 +4,25 @@
     getAdbPath,
     detectAdbPath,
     setAdbPath,
+    installAdb,
+    checkAdbPath,
     detectScrcpyStatus,
     setScrcpyPath,
     installScrcpy,
     restartAdb,
     enableTcpip,
     setLocale,
+    getDevices,
+    exportDevices,
+    importDevices,
+    setScrcpyOptions,
+    getScrcpyOptions,
   } from './api';
   import { listen } from './api';
   import { getErrorMessage } from './errors';
   import { t } from './i18n';
   import type { Locale } from './i18n';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { open, save } from '@tauri-apps/plugin-dialog';
   import { getVersion } from '@tauri-apps/api/app';
 
   let adbPathInput = $state('');
@@ -26,16 +33,65 @@
   let tcpipPort = $state(5555);
   let tcpipBusy = $state(false);
   let scrcpyBusy = $state(false);
+  let bitrateInput = $state('');
+  let turnScreenOff = $state(false);
+  let maxSizeInput = $state('');
+  let stayAwake = $state(false);
 
   const scrcpyStatus = $derived(store.scrcpyStatus);
   const scrcpyInstallLog = $derived(store.scrcpyInstallLog);
   const isInstallingScrcpy = $derived(store.isInstallingScrcpy);
+  const hasDevices = $derived(store.devices.length > 0);
+
+  async function handleExportDevices() {
+    try {
+      const target = await save({
+        defaultPath: 'adbbar-devices.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!target) {
+        return;
+      }
+      await exportDevices(target);
+      store.showStatus(t('settings.exported'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('settings.exportFailed')));
+    }
+  }
+
+  async function handleImportDevices() {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!selected) {
+        return;
+      }
+      const filePath = typeof selected === 'string' ? selected : selected;
+      const added = await importDevices(filePath as string);
+      store.devices = await getDevices();
+      store.showStatus(added > 0 ? t('settings.imported', { count: added }) : t('settings.importedNone'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('settings.importFailed')));
+    }
+  }
 
   let installLogEl: HTMLDivElement | undefined = $state();
+  let adbInstallLogEl: HTMLDivElement | undefined = $state();
+  let unlistenAdb: (() => void) | null = $state(null);
+
+  const isInstallingAdb = $derived(store.isInstallingAdb);
 
   $effect(() => {
     if (installLogEl) {
       installLogEl.scrollTop = installLogEl.scrollHeight;
+    }
+  });
+
+  $effect(() => {
+    if (adbInstallLogEl) {
+      adbInstallLogEl.scrollTop = adbInstallLogEl.scrollHeight;
     }
   });
 
@@ -51,7 +107,13 @@
     try {
       store.adbPath = await getAdbPath();
       adbPathInput = store.adbPath;
-      adbValid = true;
+      adbValid = null;
+      try {
+        await checkAdbPath(store.adbPath);
+        adbValid = true;
+      } catch {
+        adbValid = false;
+      }
     } catch (e) {
       adbValid = false;
       store.showStatus(getErrorMessage(e, t('settings.adbPath')));
@@ -60,6 +122,15 @@
       store.scrcpyStatus = await detectScrcpyStatus();
     } catch {
       store.scrcpyStatus = { installed: false, path: null, version: null };
+    }
+    try {
+      const [bitrate, turnOff, maxSize, awake] = await getScrcpyOptions();
+      bitrateInput = bitrate !== null ? String(bitrate) : '';
+      turnScreenOff = turnOff;
+      maxSizeInput = maxSize !== null ? String(maxSize) : '';
+      stayAwake = awake;
+    } catch {
+      // Defaults stay in place.
     }
   }
 
@@ -124,6 +195,34 @@
     }
   }
 
+  async function handleInstallAdb() {
+    store.adbInstallLog = '';
+    store.isInstallingAdb = true;
+
+    try {
+      unlistenAdb = await listen<string>('adb-install-progress', (msg) => {
+        store.adbInstallLog += msg + '\n';
+      });
+
+      const path = await installAdb();
+      store.adbPath = path;
+      adbPathInput = path;
+      adbValid = true;
+      store.adbInstallLog += '\n' + t('settings.adbInstalled') + '\n';
+      store.showStatus(t('settings.adbInstalled'));
+    } catch (e) {
+      const message = getErrorMessage(e, t('settings.adbInstallFailed'));
+      store.adbInstallLog += `\n${message}\n`;
+      store.showStatus(message);
+    } finally {
+      store.isInstallingAdb = false;
+      if (unlistenAdb) {
+        unlistenAdb();
+        unlistenAdb = null;
+      }
+    }
+  }
+
   async function handleRestartAdb() {
     adbBusy = true;
     try {
@@ -145,6 +244,25 @@
       store.showStatus(getErrorMessage(e, t('settings.tcpipFailed')));
     } finally {
       tcpipBusy = false;
+    }
+  }
+
+  async function saveScrcpyOptions() {
+    const mbps = bitrateInput.trim() ? Number.parseInt(bitrateInput.trim(), 10) : null;
+    if (mbps !== null && (!Number.isInteger(mbps) || mbps < 1 || mbps > 1000)) {
+      store.showStatus(t('settings.bitrateError'));
+      return;
+    }
+    const maxSize = maxSizeInput.trim() ? Number.parseInt(maxSizeInput.trim(), 10) : null;
+    if (maxSize !== null && (!Number.isInteger(maxSize) || maxSize < 100 || maxSize > 8192)) {
+      store.showStatus(t('settings.maxSizeError'));
+      return;
+    }
+    try {
+      await setScrcpyOptions(mbps, turnScreenOff, maxSize, stayAwake);
+      store.showStatus(t('settings.scrcpyOptionsSaved'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('settings.scrcpyOptionsSaveFailed')));
     }
   }
 
@@ -248,6 +366,7 @@
             placeholder={t('settings.adbPlaceholder')}
             bind:value={adbPathInput}
             onblur={handleAdbInputBlur}
+            disabled={isInstallingAdb}
           />
           {#if adbValid === true}
             <span class="validity-indicator valid" title="Valid">&#10003;</span>
@@ -257,20 +376,34 @@
         </div>
       </div>
       <div class="adb-buttons">
-        <button class="glass-btn small" onclick={handleBrowse}>
+        <button class="glass-btn small" onclick={handleBrowse} disabled={isInstallingAdb}>
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           {t('settings.browse')}
         </button>
-        <button class="glass-btn small" onclick={handleAutoDetect}>
+        <button class="glass-btn small" onclick={handleAutoDetect} disabled={isInstallingAdb}>
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           {t('settings.autoDetect')}
         </button>
+        <button class="glass-btn small" onclick={handleInstallAdb} disabled={isInstallingAdb}>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          {isInstallingAdb ? t('settings.installingAdb') : t('settings.installAdb')}
+        </button>
       </div>
+
+      {#if store.adbInstallLog}
+        <div class="install-log" bind:this={adbInstallLogEl}>
+          <pre class="log-text">{store.adbInstallLog}</pre>
+        </div>
+      {/if}
     </section>
 
     <!-- ADB Tools Section -->
@@ -316,6 +449,30 @@
         </button>
       </div>
       <p class="hint">{t('settings.tcpipHint')}</p>
+    </section>
+
+    <!-- Device Backup Section -->
+    <section class="section">
+      <h2 class="section-title">{t('settings.deviceBackup')}</h2>
+      <div class="adb-buttons">
+        <button class="glass-btn small" onclick={handleExportDevices} disabled={!hasDevices}>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          {t('settings.exportDevices')}
+        </button>
+        <button class="glass-btn small" onclick={handleImportDevices}>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          {t('settings.importDevices')}
+        </button>
+      </div>
+      <p class="hint">{t('settings.deviceBackupHint')}</p>
     </section>
 
     <!-- Scrcpy Section -->
@@ -381,6 +538,56 @@
           <pre class="log-text">{scrcpyInstallLog}</pre>
         </div>
       {/if}
+    </section>
+
+    <!-- Scrcpy Options Section -->
+    <section class="section">
+      <h2 class="section-title">{t('settings.scrcpyOptions')}</h2>
+      <div class="scrcpy-options-row">
+        <label class="field-inline">
+          <span class="label">{t('settings.bitrate')}</span>
+          <input
+            class="input small"
+            type="number"
+            min="1"
+            max="1000"
+            placeholder={t('settings.bitratePlaceholder')}
+            bind:value={bitrateInput}
+            onblur={saveScrcpyOptions}
+          />
+        </label>
+        <label class="field-inline">
+          <span class="label">{t('settings.maxSize')}</span>
+          <input
+            class="input small"
+            type="number"
+            min="100"
+            max="8192"
+            placeholder={t('settings.maxSizePlaceholder')}
+            bind:value={maxSizeInput}
+            onblur={saveScrcpyOptions}
+          />
+        </label>
+      </div>
+      <div class="scrcpy-options-row">
+        <label class="toggle-label">
+          <input
+            type="checkbox"
+            bind:checked={turnScreenOff}
+            onchange={saveScrcpyOptions}
+          />
+          {t('settings.turnScreenOff')}
+        </label>
+        <label class="toggle-label">
+          <input
+            type="checkbox"
+            bind:checked={stayAwake}
+            onchange={saveScrcpyOptions}
+          />
+          {t('settings.stayAwake')}
+        </label>
+      </div>
+      <p class="hint">{t('settings.scrcpyOptionsHint')}</p>
     </section>
 
     <!-- About Section -->
@@ -619,6 +826,44 @@
     margin: 6px 0 0;
     font-size: 10px;
     color: #666;
+  }
+
+  .scrcpy-options-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+
+  .scrcpy-options-row:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .field-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field-inline .input.small {
+    width: 110px;
+  }
+
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #ccc;
+    cursor: pointer;
+    padding-bottom: 8px;
+  }
+
+  .toggle-label input[type='checkbox'] {
+    accent-color: #8cb4ff;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
   }
 
   .btn-icon {

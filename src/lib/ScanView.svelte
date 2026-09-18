@@ -1,15 +1,25 @@
 <script lang="ts">
   import { store } from './stores.svelte';
-  import { scanNetwork, addDevice, getDevices } from './api';
+  import {
+    scanNetwork,
+    addDevice,
+    getDevices,
+    getMdnsServices,
+    getScanPort,
+    setScanPort,
+  } from './api';
   import { listen } from './api';
   import { getErrorMessage } from './errors';
   import { t } from './i18n';
-  import type { ScanProgress, ScanResult } from './types';
+  import type { MdnsService, ScanProgress, ScanResult } from './types';
 
   let unlisten: (() => void) | null = $state(null);
   let portInput = $state(String(store.scanSession.port));
   let localError = $state<string | null>(null);
   let startedOnMount = $state(false);
+  let mdns = $state<MdnsService[] | null>(null);
+  let mdnsLoading = $state(false);
+  let mdnsTimer: ReturnType<typeof setInterval> | null = null;
 
   const scanSession = $derived(store.scanSession);
   const isScanning = $derived(store.isScanning);
@@ -65,6 +75,8 @@
     localError = null;
     cleanup();
     store.startScanSession(port);
+    // Remember the port for the next run.
+    setScanPort(port).catch(() => {});
 
     try {
       unlisten = await listen<ScanProgress>('scan-progress', (progress) => {
@@ -104,14 +116,76 @@
     }
   }
 
+  async function loadMdns() {
+    mdnsLoading = true;
+    try {
+      mdns = await getMdnsServices();
+    } catch {
+      // Old adb or no mDNS backend: keep the section quiet.
+      mdns = null;
+    } finally {
+      mdnsLoading = false;
+    }
+  }
+
+  function splitAddress(address: string): { ip: string; port: number } {
+    const idx = address.lastIndexOf(':');
+    if (idx === -1) {
+      return { ip: address, port: 5555 };
+    }
+    const ip = address.slice(0, idx);
+    const port = Number.parseInt(address.slice(idx + 1), 10) || 5555;
+    return { ip, port };
+  }
+
+  function mdnsAdded(svc: MdnsService): boolean {
+    const { ip, port } = splitAddress(svc.address);
+    return devices.some((d) => d.ip_address === ip && d.port === port);
+  }
+
+  async function handleMdnsAdd(svc: MdnsService) {
+    const { ip, port } = splitAddress(svc.address);
+    try {
+      await addDevice(`Device (${ip})`, ip, port);
+      store.devices = await getDevices();
+      store.showStatus(t('scan.deviceAdded'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('scan.addFailed')));
+    }
+  }
+
+  function handleMdnsPair(svc: MdnsService) {
+    store.addDevicePrefill = { mode: 'pair', pairAddress: svc.address };
+    store.navigate('addDevice');
+  }
+
+  // Restore the last used scan port before auto-starting the first scan.
+  async function initScan() {
+    try {
+      const saved = await getScanPort();
+      if (saved) {
+        portInput = String(saved);
+      }
+    } catch {
+      // Fall back to the default port.
+    }
+    startScan();
+  }
+
   $effect(() => {
     if (!startedOnMount) {
       startedOnMount = true;
-      startScan();
+      initScan();
+      loadMdns();
+      mdnsTimer = setInterval(loadMdns, 5000);
     }
 
     return () => {
       cleanup();
+      if (mdnsTimer) {
+        clearInterval(mdnsTimer);
+        mdnsTimer = null;
+      }
     };
   });
 </script>
@@ -128,6 +202,49 @@
       <span class="scanning-badge">{t('scan.scanning')}</span>
     {/if}
   </header>
+
+  <section class="mdns-panel">
+    <div class="mdns-header">
+      <span class="mdns-title">{t('scan.mdnsTitle')}</span>
+      <button
+        class="back-btn"
+        onclick={loadMdns}
+        disabled={mdnsLoading}
+        title={t('scan.mdnsRefresh')}
+      >
+        <svg class="icon {mdnsLoading ? 'spinning' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 2v6h-6" />
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M3 22v-6h6" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        </svg>
+      </button>
+    </div>
+    {#if mdns && mdns.length > 0}
+      {#each mdns as svc (`${svc.address}|${svc.kind}`)}
+        <div class="result-row">
+          <div class="result-info">
+            <span class="result-ip">{svc.name}</span>
+            <span class="result-port">{svc.address}</span>
+          </div>
+          <span class="mdns-badge {svc.kind}">
+            {svc.kind === 'pairing' ? t('scan.mdnsPairable') : t('scan.mdnsConnectable')}
+          </span>
+          {#if svc.kind === 'pairing'}
+            <button class="add-btn" onclick={() => handleMdnsPair(svc)}>
+              {t('scan.mdnsPairAction')}
+            </button>
+          {:else if mdnsAdded(svc)}
+            <span class="added-badge">{t('scan.added')}</span>
+          {:else}
+            <button class="add-btn" onclick={() => handleMdnsAdd(svc)}>{t('scan.add')}</button>
+          {/if}
+        </div>
+      {/each}
+    {:else}
+      <div class="mdns-empty">{mdnsLoading ? t('deviceDetail.loading') : t('scan.mdnsEmpty')}</div>
+    {/if}
+  </section>
 
   <section class="scan-controls">
     <label class="port-field">
@@ -252,6 +369,67 @@
   .icon {
     width: 16px;
     height: 16px;
+  }
+
+  .spinning {
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .mdns-panel {
+    margin: 10px 12px 0;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+  }
+
+  .mdns-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .mdns-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .mdns-empty {
+    padding: 8px 0 2px;
+    color: #666;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .mdns-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-right: 4px;
+    flex-shrink: 0;
+  }
+
+  .mdns-badge.pairing {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ffb74d;
+  }
+
+  .mdns-badge.connect {
+    background: rgba(76, 175, 80, 0.15);
+    color: #81c784;
   }
 
   .page-title {

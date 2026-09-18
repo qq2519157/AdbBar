@@ -19,16 +19,27 @@ const createScanSession = (port = 5555): ScanSession => ({
 
 class AppStore {
   devices = $state<AdbDevice[]>([]);
-  page = $state<'main' | 'addDevice' | 'scan' | 'settings'>('main');
+  page = $state<'main' | 'addDevice' | 'scan' | 'settings' | 'deviceDetail'>('main');
+  selectedDeviceId = $state<string | null>(null);
   statusMessage = $state<string | null>(null);
   isRefreshing = $state(false);
   scanSession = $state<ScanSession>(createScanSession());
   isScanning = $state(false);
+  addDevicePrefill = $state<{
+    mode: 'manual' | 'pair';
+    pairAddress?: string;
+    ip?: string;
+    port?: string;
+  } | null>(null);
   adbPath = $state('');
+  adbInstallLog = $state('');
+  isInstallingAdb = $state(false);
   scrcpyStatus = $state<ScrcpyStatus | null>(null);
   scrcpyInstallLog = $state('');
   isInstallingScrcpy = $state(false);
   locale = $state<Locale>(detectLocale());
+  // Plain flag (not UI state): ensures startup auto-reconnect runs once per app run.
+  hasInitialReconnected = false;
 
   showStatus(msg: string, duration = 3000) {
     this.statusMessage = msg;
@@ -39,7 +50,7 @@ class AppStore {
     }, duration);
   }
 
-  navigate(page: 'main' | 'addDevice' | 'scan' | 'settings') {
+  navigate(page: 'main' | 'addDevice' | 'scan' | 'settings' | 'deviceDetail') {
     this.page = page;
   }
 

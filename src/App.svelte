@@ -6,6 +6,7 @@
   import AddDevice from './lib/AddDevice.svelte';
   import ScanView from './lib/ScanView.svelte';
   import Settings from './lib/Settings.svelte';
+  import DeviceDetail from './lib/DeviceDetail.svelte';
 
   const page = $derived(store.page);
 
@@ -16,7 +17,19 @@
   function handleClose() {
     invoke('hide_window');
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Escape' || store.page === 'main') {
+      return;
+    }
+    if (store.page === 'deviceDetail') {
+      store.selectedDeviceId = null;
+    }
+    store.navigate('main');
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="app-container">
   <div class="titlebar">
@@ -37,6 +50,8 @@
       <ScanView />
     {:else if page === 'settings'}
       <Settings />
+    {:else if page === 'deviceDetail'}
+      <DeviceDetail />
     {/if}
   </div>
 </div>

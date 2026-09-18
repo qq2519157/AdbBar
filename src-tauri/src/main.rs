@@ -54,7 +54,8 @@ fn main() {
 
 fn tray_setup(app: &tauri::App) {
     let state = app.state::<AppState>();
-    let devices = tauri::async_runtime::block_on(state.store.store.lock()).devices.clone();
+    let mut devices = tauri::async_runtime::block_on(state.store.store.lock()).devices.clone();
+    devices.sort_by_key(|d| !d.pinned);
     let menu = adbbar_tauri::build_tray_menu(app, &devices);
     let tray_icon = tray_icon_image();
 
@@ -105,6 +106,27 @@ fn tray_setup(app: &tauri::App) {
                             Err(e) => {
                                 notify("ADB Bar", &adbbar_tauri::locale::notify_text("tcpip_failed"));
                                 eprintln!("enable_tcpip error: {e}");
+                            }
+                        }
+                    });
+                }
+                "disconnect-all" => {
+                    let state = app.state::<AppState>();
+                    let adb = state.adb.clone();
+                    let store = state.store.clone();
+                    let ah = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match adbbar_tauri::disconnect_all_devices(adb, store).await {
+                            Ok(devices) => {
+                                notify(
+                                    "ADB Bar",
+                                    &adbbar_tauri::locale::notify_text("disconnect_all_done"),
+                                );
+                                adbbar_tauri::rebuild_tray_menu(&ah, devices.clone());
+                                let _ = ah.emit("devices-updated", &devices);
+                            }
+                            Err(e) => {
+                                eprintln!("disconnect_all error: {e}");
                             }
                         }
                     });

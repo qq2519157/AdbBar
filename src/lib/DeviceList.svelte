@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import { store } from './stores.svelte';
-  import { getDevices, refreshAll, clearDevices, listen } from './api';
+  import { getDevices, refreshAll, clearDevices, disconnectAll, listen } from './api';
   import { getErrorMessage } from './errors';
   import { t } from './i18n';
   import { ask } from '@tauri-apps/plugin-dialog';
@@ -11,9 +11,13 @@
   let loading = $state(false);
   let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
-  const devices = $derived(store.devices);
+  const devices = $derived(
+    [...store.devices].sort((a, b) => Number(b.pinned) - Number(a.pinned))
+  );
   const statusMessage = $derived(store.statusMessage);
   const isRefreshing = $derived(store.isRefreshing);
+  const anyConnected = $derived(devices.some((d) => d.status === 'connected'));
+  let disconnectingAll = $state(false);
 
   async function loadDevices() {
     loading = true;
@@ -46,6 +50,14 @@
     }
   }
 
+  async function reconnectAll() {
+    try {
+      store.devices = await refreshAll(true);
+    } catch {
+      // Background reconnects stay quiet too.
+    }
+  }
+
   async function handleClearAll() {
     const confirmed = await ask(t('deviceList.clearConfirm'), {
       title: t('deviceList.clearTitle'),
@@ -64,9 +76,26 @@
     }
   }
 
+  async function handleDisconnectAll() {
+    disconnectingAll = true;
+    try {
+      store.devices = await disconnectAll();
+      store.showStatus(t('deviceList.allDisconnected'));
+    } catch (e) {
+      store.showStatus(getErrorMessage(e, t('deviceList.disconnectAllFailed')));
+    } finally {
+      disconnectingAll = false;
+    }
+  }
+
   $effect(() => {
     loadDevices();
-    silentRefresh();
+    // Reconnect saved devices once per app run (flag lives in the store so
+    // navigating away and back does not re-trigger it).
+    if (!store.hasInitialReconnected) {
+      store.hasInitialReconnected = true;
+      reconnectAll();
+    }
     autoRefreshTimer = setInterval(silentRefresh, 15000);
 
     const unlistenShown = listen<void>('window-shown', () => {
@@ -108,6 +137,18 @@
           <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
           <path d="M3 22v-6h6" />
           <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        </svg>
+      </button>
+      <button
+        class="icon-btn"
+        onclick={handleDisconnectAll}
+        disabled={disconnectingAll}
+        title={t('deviceList.disconnectAll')}
+        style="display: {anyConnected ? 'flex' : 'none'};"
+      >
+        <svg class="icon {disconnectingAll ? 'spinning' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+          <line x1="12" y1="2" x2="12" y2="12" />
         </svg>
       </button>
       <button
