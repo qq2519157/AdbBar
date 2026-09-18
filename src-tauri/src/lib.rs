@@ -646,6 +646,11 @@ where
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(move |app| {
+            // Pure menu bar app: no Dock icon on macOS (defaults to Regular).
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+
             // Initialize the persistent store
             let store_manager = tauri::async_runtime::block_on(StoreManager::new())
                 .expect("Failed to initialize store");

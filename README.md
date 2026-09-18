@@ -11,6 +11,7 @@ A cross-platform system tray app for managing ADB devices. Built with Tauri (Rus
 ## Features
 
 - System tray icon with popup window
+- macOS: menu bar only, no Dock icon (quit from the tray menu)
 - Connect/disconnect ADB devices with one click (tray quick-connect included)
 - Auto-scan local network for ADB devices (port 5555)
 - mDNS discovery of Android devices on the LAN (`adb mdns services`)
@@ -70,6 +71,7 @@ npx tauri build
 ## 功能
 
 - 系统托盘图标，点击弹出窗口
+- macOS：仅菜单栏运行，无 Dock 图标（从托盘菜单退出）
 - 一键连接/断开 ADB 设备（含托盘快速连接）
 - 自动扫描局域网中的 ADB 设备（端口 5555）
 - mDNS 局域网设备发现（`adb mdns services`）
