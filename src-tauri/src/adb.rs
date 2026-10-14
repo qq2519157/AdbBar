@@ -189,7 +189,7 @@ impl AdbService {
         } else if output.trim().is_empty() {
             Err(format!("adb connect produced no output for {}", address))
         } else {
-            Err(output.trim().to_string())
+            Err(with_local_network_hint(output.trim().to_string()))
         }
     }
 
@@ -208,7 +208,7 @@ impl AdbService {
         } else if output.trim().is_empty() {
             Err(format!("adb pair produced no output for {}", address))
         } else {
-            Err(output.trim().to_string())
+            Err(with_local_network_hint(output.trim().to_string()))
         }
     }
 
@@ -426,6 +426,34 @@ fn connect_succeeded(output: &str) -> bool {
         if line.starts_with("connected to") || line.starts_with("already connected"))
 }
 
+/// On macOS the most common root cause of "No route to host"-style failures is the
+/// Local Network privacy permission: it is attributed to whatever process spawned
+/// the adb server, so merely restarting the server from inside this app never
+/// changes the verdict. Append one actionable line so users can escape the loop;
+/// other platforms return the error untouched.
+#[cfg(target_os = "macos")]
+fn with_local_network_hint(err: String) -> String {
+    let lower = err.to_lowercase();
+    if lower.contains("no route to host")
+        || lower.contains("host is unreachable")
+        || lower.contains("network is unreachable")
+        || lower.contains("operation not permitted")
+    {
+        format!(
+            "{err}｜提示：可能是 macOS 本地网络权限未放行。到 系统设置 → 隐私与安全性 → \
+             本地网络 中允许 ADB Bar（若 adb server 由终端拉起，终端也需允许）；\
+             仍失败可在终端执行 adb kill-server 后重试"
+        )
+    } else {
+        err
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn with_local_network_hint(err: String) -> String {
+    err
+}
+
 /// `adb pair` announces success by printing a "Successfully paired to <addr>" line
 /// (possibly after daemon notices); failures print "Failed to pair ..." / "error: ...".
 /// Exit codes alone are not trusted, mirroring `adb connect`.
@@ -581,7 +609,24 @@ fn chrono_date_string() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{connect_succeeded, parse_devices_output};
+    use super::{connect_succeeded, parse_devices_output, with_local_network_hint};
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn local_network_hint_appended_for_unreachable_errors() {
+        let err =
+            String::from("failed to connect to '192.168.16.40:5555': No route to host");
+        let hinted = with_local_network_hint(err.clone());
+        assert!(hinted.starts_with(&err));
+        assert!(hinted.contains("本地网络"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn local_network_hint_skipped_for_other_errors() {
+        let err = String::from("failed to connect to '192.168.16.40:5555': Connection refused");
+        assert_eq!(with_local_network_hint(err.clone()), err);
+    }
 
     #[test]
     fn parse_devices_output_maps_statuses() {
