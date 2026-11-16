@@ -573,24 +573,52 @@ async fn install_scrcpy(
         .await
 }
 
+/// Restart the adb server, then notify the frontend: `adb-restarted` triggers
+/// a device refresh and tray-menu rebuild in the UI. Shared by the settings
+/// command and the tray menu entry so both paths behave identically.
+pub async fn restart_adb_task(
+    app: &tauri::AppHandle,
+    adb: Arc<AdbService>,
+) -> Result<String, String> {
+    let result = adb.restart_server().await;
+    if result.is_ok() {
+        let _ = app.emit("adb-restarted", ());
+    }
+    result
+}
+
+/// Switch a device's adbd into TCP listen mode, then notify the frontend
+/// (`tcpip-enabled` triggers a device refresh). Shared by the settings
+/// command and the tray menu entry.
+pub async fn enable_tcpip_task(
+    app: &tauri::AppHandle,
+    adb: Arc<AdbService>,
+    address: Option<String>,
+    port: u16,
+) -> Result<String, String> {
+    let result = adb.enable_tcpip(address.as_deref(), port).await;
+    if result.is_ok() {
+        let _ = app.emit("tcpip-enabled", ());
+    }
+    result
+}
+
 #[tauri::command]
-async fn restart_adb(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.adb.run(&["kill-server"], 5).await?;
-    state.adb.run(&["start-server"], 10).await?;
-    Ok("ADB server restarted".to_string())
+async fn restart_adb(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    restart_adb_task(&app, state.adb.clone()).await
 }
 
 #[tauri::command]
 async fn enable_tcpip(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     address: Option<String>,
     port: Option<u16>,
 ) -> Result<String, String> {
-    let port_str = port.unwrap_or(5555).to_string();
-    match address {
-        Some(addr) => state.adb.run(&["-s", &addr, "tcpip", &port_str], 10).await,
-        None => state.adb.run(&["tcpip", &port_str], 10).await,
-    }
+    enable_tcpip_task(&app, state.adb.clone(), address, port.unwrap_or(5555)).await
 }
 
 #[tauri::command]

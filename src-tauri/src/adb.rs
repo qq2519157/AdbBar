@@ -20,6 +20,14 @@ pub(crate) fn new_command(program: &str) -> std::process::Command {
 
 pub struct AdbService {
     adb_path: Mutex<String>,
+    /// Serializes server-control operations (kill/start-server, tcpip). Tray
+    /// menu actions are fire-and-forget background tasks with no busy state,
+    /// so a quick "restart" followed by "enable tcpip" would otherwise race:
+    /// the tcpip client auto-starts a fresh server that the still-running
+    /// restart then kills mid-command (or the fresh server has not enumerated
+    /// the USB device yet), leaving the phone's adbd in USB-only mode and
+    /// saved wireless devices impossible to reconnect.
+    server_ops: Mutex<()>,
 }
 
 impl AdbService {
@@ -28,6 +36,7 @@ impl AdbService {
             .unwrap_or_else(|| Self::detect_adb_path().unwrap_or_else(|| "adb".to_string()));
         Self {
             adb_path: Mutex::new(path),
+            server_ops: Mutex::new(()),
         }
     }
 
@@ -195,6 +204,27 @@ impl AdbService {
 
     pub async fn disconnect(&self, address: &str) -> Result<String, String> {
         self.run(&["disconnect", address], 10).await
+    }
+
+    /// Restart the adb server (kill + start). Serialized by [`Self::server_ops`]
+    /// so tray-menu clicks cannot race a concurrently spawned `tcpip` command;
+    /// shared by the settings command and the tray menu entry.
+    pub async fn restart_server(&self) -> Result<String, String> {
+        let _guard = self.server_ops.lock().await;
+        self.run(&["kill-server"], 5).await?;
+        self.run(&["start-server"], 10).await?;
+        Ok("ADB server restarted".to_string())
+    }
+
+    /// Switch a device's adbd into TCP listen mode. Serialized like
+    /// [`Self::restart_server`] for the same reason.
+    pub async fn enable_tcpip(&self, address: Option<&str>, port: u16) -> Result<String, String> {
+        let _guard = self.server_ops.lock().await;
+        let port_str = port.to_string();
+        match address {
+            Some(addr) => self.run(&["-s", addr, "tcpip", &port_str], 10).await,
+            None => self.run(&["tcpip", &port_str], 10).await,
+        }
     }
 
     /// Pair with a device using the code shown in the phone's

@@ -110,6 +110,12 @@
       silentRefresh();
     });
 
+    // Emitted by the backend after `adb tcpip` succeeds (settings page or tray
+    // menu): the device re-enumerates shortly after, so refresh the list.
+    const unlistenTcpipEnabled = listen<void>('tcpip-enabled', () => {
+      silentRefresh();
+    });
+
     return () => {
       if (autoRefreshTimer) {
         clearInterval(autoRefreshTimer);
@@ -118,6 +124,7 @@
       unlistenShown.then(fn => fn());
       unlistenUpdated.then(fn => fn());
       unlistenRestarted.then(fn => fn());
+      unlistenTcpipEnabled.then(fn => fn());
     };
   });
 </script>

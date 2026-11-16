@@ -86,18 +86,18 @@ fn tray_setup(app: &tauri::App) {
                     let adb = app.state::<AppState>().adb.clone();
                     let ah = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        let result = async {
-                            adb.run(&["kill-server"], 5).await?;
-                            adb.run(&["start-server"], 10).await
-                        }
-                        .await;
-                        match result {
+                        // Shared with the settings command: serialized against a
+                        // quickly following "enable tcpip" click, and emits
+                        // `adb-restarted` so the UI refreshes on success.
+                        match adbbar_tauri::restart_adb_task(&ah, adb).await {
                             Ok(_) => {
                                 notify("ADB Bar", &adbbar_tauri::locale::notify_text("restart_success"));
-                                let _ = ah.emit("adb-restarted", ());
                             }
                             Err(e) => {
-                                notify("ADB Bar", &adbbar_tauri::locale::notify_text("restart_failed"));
+                                notify(
+                                    "ADB Bar",
+                                    &format!("{}: {e}", adbbar_tauri::locale::notify_text("restart_failed")),
+                                );
                                 eprintln!("restart_adb error: {e}");
                             }
                         }
@@ -107,14 +107,18 @@ fn tray_setup(app: &tauri::App) {
                     let adb = app.state::<AppState>().adb.clone();
                     let ah = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        let result = adb.run(&["tcpip", "5555"], 10).await;
-                        match result {
+                        // Shared with the settings command (default port 5555):
+                        // serialized against a concurrent restart, and emits
+                        // `tcpip-enabled` so the UI refreshes on success.
+                        match adbbar_tauri::enable_tcpip_task(&ah, adb, None, 5555).await {
                             Ok(_) => {
                                 notify("ADB Bar", &adbbar_tauri::locale::notify_text("tcpip_success"));
-                                let _ = ah.emit("tcpip-enabled", ());
                             }
                             Err(e) => {
-                                notify("ADB Bar", &adbbar_tauri::locale::notify_text("tcpip_failed"));
+                                notify(
+                                    "ADB Bar",
+                                    &format!("{}: {e}", adbbar_tauri::locale::notify_text("tcpip_failed")),
+                                );
                                 eprintln!("enable_tcpip error: {e}");
                             }
                         }
